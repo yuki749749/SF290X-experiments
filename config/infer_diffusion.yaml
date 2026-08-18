@@ -1,5 +1,0 @@
-defaults:
-  - base
-  - diffusion_model
-  - _self_
-

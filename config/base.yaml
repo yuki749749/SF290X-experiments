@@ -30,7 +30,6 @@ paths:
     gp: data/hyperparameters/gp_hyperparameters.pkl
   results:
     gp_tuning: results/gp_tuning/
-    beta_tuning: results/beta_tuning/
     diffusion_training: results/train_diffusion/
   trajectories:
     raw: data/trajectories/raw
