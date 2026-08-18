@@ -201,6 +201,14 @@ def main(cfg: DictConfig) -> None:
     log.info(f"Best model saved with val loss: {best_val_loss:.4f}")
     log.info(f"Final model saved with val loss: {val_loss:.4f}")
 
+    # Copy best checkpoint to models/best_checkpoint.pt
+    import shutil
+    central_checkpoint_dir = abs_path("models")
+    os.makedirs(central_checkpoint_dir, exist_ok=True)
+    central_checkpoint_path = os.path.join(central_checkpoint_dir, "best_checkpoint.pt")
+    shutil.copy(best_checkpoint_path, central_checkpoint_path)
+    log.info(f"Copied best checkpoint to central path: {central_checkpoint_path}")
+
 
 if __name__ == "__main__":
     main()

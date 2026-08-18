@@ -15,6 +15,8 @@ Usage
     apply_style(grid=False)  # spatial field / image plots (grid off)
 """
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # ── Wong colorblind-safe palette ───────────────────────────────────────────────

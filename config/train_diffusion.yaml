@@ -14,4 +14,4 @@ training:
 
 paths:
   trajectories:
-    processed: results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl
+    processed: data/trajectories/processed/training_data.pkl

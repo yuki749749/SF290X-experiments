@@ -30,6 +30,8 @@ from pathlib import Path
 
 import hydra
 import joblib
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 plt.rcParams.update({
@@ -51,7 +53,7 @@ plt.rcParams.update({
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-from utils import get_output_dir
+from utils import get_output_dir, abs_path
 
 # ── Planner-class → subdirectory name mapping ─────────────────────────────────
 # Keys are the directory names Hydra creates; values are the history-file prefix
@@ -301,10 +303,16 @@ def plot_reward_distribution(dataset: list[dict], out_dir: str) -> None:
     plot_path = os.path.join(out_dir, "reward_distribution.pdf")
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved reward histogram → {plot_path}")
+    print(f"Saved reward histogram -> {plot_path}")
 
 
-def save_dataset(dataset: list[dict], stats: dict, out_dir: str) -> None:
+def save_dataset(
+    dataset: list[dict],
+    stats: dict,
+    out_dir: str,
+    central_data_path: str = None,
+    central_stats_path: str = None,
+) -> None:
     os.makedirs(out_dir, exist_ok=True)
     data_path  = os.path.join(out_dir, "training_data.pkl")
     stats_path = os.path.join(out_dir, "training_data_stats.json")
@@ -315,8 +323,17 @@ def save_dataset(dataset: list[dict], stats: dict, out_dir: str) -> None:
 
     plot_reward_distribution(dataset, out_dir)
 
-    print(f"\nSaved dataset → {data_path}")
-    print(f"Saved stats   → {stats_path}")
+    print(f"\nSaved dataset -> {data_path}")
+    print(f"Saved stats   -> {stats_path}")
+
+    if central_data_path is not None:
+        os.makedirs(os.path.dirname(central_data_path), exist_ok=True)
+        joblib.dump(dataset, central_data_path)
+        print(f"Saved copy of dataset to central path -> {central_data_path}")
+    if central_stats_path is not None:
+        with open(central_stats_path, "w") as f:
+            json.dump(stats, f, indent=2)
+        print(f"Saved copy of stats to central path -> {central_stats_path}")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -360,7 +377,15 @@ def main(cfg: DictConfig) -> None:
     for k, v in stats.items():
         print(f"  {k:<35}: {v}")
 
-    save_dataset(dataset, stats, out_dir)
+    central_processed_path = abs_path(cfg.paths.trajectories.processed)
+    if os.path.isdir(central_processed_path) or not central_processed_path.endswith(".pkl"):
+        central_data_path = os.path.join(central_processed_path, "training_data.pkl")
+        central_stats_path = os.path.join(central_processed_path, "training_data_stats.json")
+    else:
+        central_data_path = central_processed_path
+        central_stats_path = os.path.join(os.path.dirname(central_processed_path), "training_data_stats.json")
+
+    save_dataset(dataset, stats, out_dir, central_data_path, central_stats_path)
 
 
 if __name__ == "__main__":
