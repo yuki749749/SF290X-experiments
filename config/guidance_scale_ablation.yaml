@@ -1,0 +1,15 @@
+hydra:
+  run:
+    dir: results/${hydra.job.name}/run/${now:%Y-%m-%d_%H-%M-%S}/scenario_${scenario_idx}/guidance_scale=${diffusion.condition_guidance_w}
+  sweep:
+    dir: results/${hydra.job.name}/sweep/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: scenario_${scenario_idx}/guidance_scale=${diffusion.condition_guidance_w}
+
+defaults:
+  - base
+  - diffusion_model
+  - planner: diffusion
+  - _self_
+
+n_timesteps: 100
+scenario_idx: 0

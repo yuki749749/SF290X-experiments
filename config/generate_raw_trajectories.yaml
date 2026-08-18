@@ -1,0 +1,17 @@
+hydra:
+  run:
+    dir: results/${hydra.job.name}/run/${now:%Y-%m-%d_%H-%M-%S}/scenario_${scenario_idx}/${planner.type}
+  sweep:
+    dir: results/${hydra.job.name}/sweep/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: scenario_${scenario_idx}/${planner.type}
+
+defaults:
+  - base
+  - planner: bo
+  - _self_
+
+n_timesteps: 101
+scenario_idx: 0
+
+planner:
+  randomize_first_step: true

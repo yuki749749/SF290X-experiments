@@ -1,0 +1,11 @@
+defaults:
+  - /base
+  - base_planner
+  - _self_
+
+type: bo
+acquisition_function: ucb
+beta: 10.0
+num_steps: 1
+num_turns: 11
+randomize_first_step: false

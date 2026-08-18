@@ -1,0 +1,6 @@
+defaults:
+  - base
+  - _self_
+
+n_observations: 64
+n_iter: 5

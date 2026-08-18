@@ -1,0 +1,17 @@
+defaults:
+  - base
+  - diffusion_model
+  - _self_
+
+training:
+  n_epochs: 200
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  eta_min: 1.0e-5
+  val_fraction: 0.1
+  ema_decay: 0.995
+
+paths:
+  trajectories:
+    processed: results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl

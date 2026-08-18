@@ -1,0 +1,13 @@
+defaults:
+  - base
+  - _self_
+
+n_steps: 101
+
+planner:
+  max_step: 1.0
+  max_turn: 0.3927    # π/8
+  acquisition_function: "ucb"
+  num_steps: 20
+  num_turns: 11
+  beta_sweep: [20.0, 30.0, 40.0]

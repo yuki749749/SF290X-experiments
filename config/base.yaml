@@ -1,0 +1,39 @@
+hydra:
+  run:
+    dir: results/${hydra.job.name}/run/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: results/${hydra.job.name}/sweep/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.override_dirname}
+
+
+# ── Environment ───────────────────────────────────────────────────────────────
+domain_min: [0.0, 0.0]
+domain_max: [15.0, 15.0]
+domain_size: [15.0, 15.0]
+domain_pad: 5.0
+source_range: [1, 3]
+intensity_range: [50, 200]
+sigma: 0.5
+seed: 42
+planner_seed: 1042
+
+# ── Evaluation grid ────────────────────────────────────────────────────────────
+n_evaluations: 1600        # 40²
+n_visualizations: 1600     # 40²
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+paths:
+  hyperparameters:
+    gp: data/hyperparameters/gp_hyperparameters.pkl
+  scenarios:
+    gp_tuning: data/scenarios/gp_tuning_scenarios.pkl
+    beta_tuning: data/scenarios/beta_tuning_scenarios.pkl
+    generation: data/scenarios/training_generation_scenarios_500.pkl
+    evaluation: data/scenarios/test_scenarios_025.pkl
+  results:
+    gp_tuning: results/gp_tuning/
+    beta_tuning: results/beta_tuning/
+    diffusion_training: results/train_diffusion/
+  trajectories:
+    raw: data/trajectories/raw
+    processed: data/trajectories/processed

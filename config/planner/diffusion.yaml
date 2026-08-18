@@ -1,0 +1,17 @@
+defaults:
+  - /base
+  - base_planner
+  - _self_
+
+type: diffusion
+checkpoint_path: results/train_diffusion/run/2026-05-14_16-50-52/best_checkpoint.pt
+replan_every: 8
+target_return: 0.5
+device: null                # null → auto (cuda if available, else cpu)
+use_ddim: False
+ddim_steps: 25
+ddim_eta: 0.0
+warm_start: True
+noise_steps: 20
+use_belief: True
+use_return: True

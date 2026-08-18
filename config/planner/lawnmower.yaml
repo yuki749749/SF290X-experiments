@@ -1,0 +1,11 @@
+defaults:
+  - /base
+  - base_planner
+  - _self_
+
+type: lawnmower
+orientation: horizontal   # "horizontal" | "vertical"
+edge_turn_steps: 2        # steps upward at the domain edge; also sets lane spacing (edge_turn_steps * max_step)
+
+# @package planner
+max_turn: 3.1416            # π rad (180 degrees)

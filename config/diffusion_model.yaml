@@ -1,0 +1,28 @@
+defaults:
+  - base
+  - _self_
+
+diffusion:
+  horizon: 16
+  observation_dim: 2
+  n_timesteps: 100
+  loss_type: l2
+  clip_denoised: True
+  predict_epsilon: True
+  loss_discount: 1.0
+  condition_guidance_w: 5.0
+  belief_guidance_w: null     # null → falls back to condition_guidance_w (original 2-pass CFG)
+  return_guidance_w: null     # set both to enable composed 3-pass CFG
+  n_cond_steps: 2
+
+
+architecture:
+  horizon: 16
+  transition_dim: 2
+  belief_dim: 1600   # crop_size² = 40² (documentation only, not used by model)
+  dim: 32
+  dim_mults: [1, 2, 4]
+  condition_dropout: 0.2
+  kernel_size: 5
+  crop_size: 24      # agent-centric crop; set to 40 to disable (use full map)
+  belief_encoder_pooling: False  # true → AdaptiveAvgPool2d (grid-size agnostic); false → flatten+linear (default, backward-compatible)

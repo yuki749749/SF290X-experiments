@@ -1,0 +1,24 @@
+hydra:
+  run:
+    dir: results/${hydra.job.name}/run/${now:%Y-%m-%d_%H-%M-%S}
+
+defaults:
+  - base
+  - _self_
+
+horizon: 16
+stride: 4
+
+# reward_type: "rmse"            → (rmse[t] - rmse[t+H-2]) / rmse[t]  (uses reward_key)
+# reward_type: "trace_reduction" → ntr[t+H-2] - ntr[t]                (uses reward_key)
+reward_type: rmse
+reward_key: rmse_history
+
+# Root that contains all timestamped sweep runs.
+# The script picks the most recently modified subdirectory automatically.
+sweep_root: results/generate_raw_trajectories/sweep
+
+# Optional: pin a specific sweep instead of auto-discovering the latest one.
+# Uncomment (or pass via CLI) to use:
+#   sweep_dir: results/generate_raw_trajectories/sweep/2025-06-01_12-00-00
+sweep_dir: null
