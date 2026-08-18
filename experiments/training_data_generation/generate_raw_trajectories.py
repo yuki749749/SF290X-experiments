@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import gpytorch
 import torch
 import joblib
+import os
 
-from environment.environment import plume
+from environment.environment import plume, generateRandomScenario
 from belief.belief import Belief, ExactGPModel
 from planners.planners import (
     RandomPlanner,
@@ -143,8 +144,13 @@ def main(cfg):
 
     gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
 
-    scenarios = joblib.load(abs_path(cfg.paths.scenarios.generation))
-    scenario = scenarios[cfg.scenario_idx]
+    import random
+    random.seed(cfg.seed + cfg.scenario_idx)
+    scenario = generateRandomScenario(
+        sourceRange=tuple(cfg.source_range),
+        domainSize=tuple(cfg.domain_size),
+        intensityRange=tuple(cfg.intensity_range)
+    )
     evaluation_x = make_grid(
         domain_min=cfg.domain_min,
         domain_max=cfg.domain_max,

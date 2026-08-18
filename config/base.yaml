@@ -16,6 +16,9 @@ intensity_range: [50, 200]
 sigma: 0.5
 seed: 42
 planner_seed: 1042
+gp_tuning_seed: 10000
+gp_tuning_scenarios: 100
+
 
 # ── Evaluation grid ────────────────────────────────────────────────────────────
 n_evaluations: 1600        # 40²
@@ -25,11 +28,6 @@ n_visualizations: 1600     # 40²
 paths:
   hyperparameters:
     gp: data/hyperparameters/gp_hyperparameters.pkl
-  scenarios:
-    gp_tuning: data/scenarios/gp_tuning_scenarios.pkl
-    beta_tuning: data/scenarios/beta_tuning_scenarios.pkl
-    generation: data/scenarios/training_generation_scenarios_500.pkl
-    evaluation: data/scenarios/test_scenarios_025.pkl
   results:
     gp_tuning: results/gp_tuning/
     beta_tuning: results/beta_tuning/

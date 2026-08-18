@@ -2,8 +2,8 @@ defaults:
   - base
   - _self_
 
-# Number of scenarios to generate for each file
-gp_tuning_scenarios: 100
-beta_tuning_scenarios: 100
-generation_scenarios: 500
-evaluation_scenarios: 25
+# Number of scenarios to generate
+num_scenarios: 100
+output_filename: scenarios.pkl
+output_path: null
+

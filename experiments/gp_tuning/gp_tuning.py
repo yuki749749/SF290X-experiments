@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from belief.belief import ExactGPModel
-from environment.environment import plume
+from environment.environment import plume, generateRandomScenario
 from utils import abs_path, get_output_dir
 
 log = logging.getLogger(__name__)
@@ -85,14 +85,18 @@ def main(cfg: DictConfig) -> None:
     output_dir = get_output_dir()
     log.info(f"GP Tuning output directory: {output_dir}")
 
-    scenario_path = abs_path(cfg.paths.scenarios.gp_tuning)
-    if not os.path.exists(scenario_path):
-        raise FileNotFoundError(
-            f"Scenario file not found at: {scenario_path}. "
-            "Please generate scenarios first by running training_data_generation/generate_scenarios.py."
+    log.info(f"Generating {cfg.gp_tuning_scenarios} GP tuning scenarios on-the-fly...")
+    import random
+    scenarios = []
+    for idx in range(cfg.gp_tuning_scenarios):
+        random.seed(cfg.gp_tuning_seed + idx)
+        scenarios.append(
+            generateRandomScenario(
+                sourceRange=tuple(cfg.source_range),
+                domainSize=tuple(cfg.domain_size),
+                intensityRange=tuple(cfg.intensity_range)
+            )
         )
-
-    scenarios = joblib.load(scenario_path)
     train_x = make_train_x(tuple(cfg.domain_size), cfg.n_observations)
 
     results = []

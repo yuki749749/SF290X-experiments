@@ -27,8 +27,23 @@ beta_sweep = [0.1, 1.0, 10.0, 100.0, 300.0, 500.0, 1000.0]
 beta_sweep = [20.0, 30.0, 40.0]
 
 gp_hyperparams = joblib.load("data/hyperparameters/gp_hyperparameters.pkl")
-scenarios = joblib.load("data/scenarios/beta_tuning_scenarios.pkl")
 seed = 42
+
+from environment.environment import generateRandomScenario
+import random
+
+beta_tuning_scenarios = 100
+beta_tuning_seed = 20000
+scenarios = []
+for idx in range(beta_tuning_scenarios):
+    random.seed(beta_tuning_seed + idx)
+    scenarios.append(
+        generateRandomScenario(
+            sourceRange=source_range,
+            domainSize=domain_size,
+            intensityRange=intensity_range
+        )
+    )
 
 
 def make_evaluation_x(domain_size, n_evaluations):

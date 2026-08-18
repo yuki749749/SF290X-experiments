@@ -9,7 +9,7 @@ import joblib
 log = logging.getLogger(__name__)
 
 
-from environment.environment import plume
+from environment.environment import plume, generateRandomScenario
 from belief.belief import Belief, ExactGPModel
 
 from planners.diffusion_planner import DiffusionPlanner
@@ -203,8 +203,13 @@ def main(cfg):
 
     gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
 
-    scenarios = joblib.load(abs_path(cfg.paths.scenarios.evaluation))
-    scenario = scenarios[cfg.scenario_idx]
+    import random
+    random.seed(cfg.planner_seed + cfg.scenario_idx)
+    scenario = generateRandomScenario(
+        sourceRange=tuple(cfg.source_range),
+        domainSize=tuple(cfg.domain_size),
+        intensityRange=tuple(cfg.intensity_range)
+    )
     evaluation_x = make_grid(
         domain_min=cfg.domain_min,
         domain_max=cfg.domain_max,
