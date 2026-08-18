@@ -33,7 +33,7 @@ import torch
 sys.path.append(os.path.dirname(__file__))  # make local imports work
 
 from belief.belief import ExactGPModel
-from environment.environment import generateRandomScenario, plume
+from environment.environment import generate_random_scenario, plume
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ def parse_args():
     p.add_argument("--n_iter",               type=int,   default=20,
                    help="LBFGS iterations per scenario")
     p.add_argument("--seed",                 type=int,   default=42)
-    p.add_argument("--output",               type=str,   default="data/hyperparameters/gpTuningResults.pkl")
+    p.add_argument("--output",               type=str,   default="data/hyperparameters/gp_tuning_results.pkl")
     p.add_argument("--scenarios_file",       type=str,   default=None,
                    help="Optional path to pre-saved scenarios .pkl (overrides random generation)")
     return p.parse_args()
@@ -128,7 +128,7 @@ def aggregate(records: list[dict], method: str = "median") -> dict:
 
 # ── Inject into model ─────────────────────────────────────────────────────────
 
-def applyHyperparams(model: ExactGPModel, hp: dict, freeze: bool = True):
+def apply_hyperparams(model: ExactGPModel, hp: dict, freeze: bool = True):
     """
     Inject aggregated hyperparameters into an ExactGPModel.
 
@@ -169,7 +169,7 @@ def main():
         print(f"Loaded {len(scenarios)} scenarios from {args.scenarios_file}")
     else:
         scenarios = [
-            generateRandomScenario(source_range, domain_size, intensity_range)
+            generate_random_scenario(source_range, domain_size, intensity_range)
             for _ in range(args.n_scenarios)
         ]
         print(f"Generated {len(scenarios)} random scenarios")
@@ -223,9 +223,9 @@ def main():
     print(f"\nSaved → {args.output}")
     print(
         "\nTo use in main.py, after constructing ExactGPModel call:\n"
-        "  from tune_hyperparams import applyHyperparams\n"
+        "  from tune_hyperparams import apply_hyperparams\n"
         "  hp = joblib.load('hyperparams.pkl')['aggregated']\n"
-        "  applyHyperparams(GPModel, hp, freeze=True)"
+        "  apply_hyperparams(GPModel, hp, freeze=True)"
     )
 
 

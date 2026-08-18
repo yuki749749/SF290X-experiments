@@ -9,7 +9,7 @@ from omegaconf import DictConfig
 # Add src folder to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from environment.environment import generateRandomScenario
+from environment.environment import generate_random_scenario
 from utils import abs_path
 
 log = logging.getLogger(__name__)
@@ -19,10 +19,10 @@ def main(cfg: DictConfig) -> None:
     log.info("Generating scenarios...")
     
     scenarios = [
-        generateRandomScenario(
-            sourceRange=tuple(cfg.source_range),
-            domainSize=tuple(cfg.domain_size),
-            intensityRange=tuple(cfg.intensity_range)
+        generate_random_scenario(
+            source_range=tuple(cfg.source_range),
+            domain_size=tuple(cfg.domain_size),
+            intensity_range=tuple(cfg.intensity_range)
         )
         for _ in range(cfg.num_scenarios)
     ]

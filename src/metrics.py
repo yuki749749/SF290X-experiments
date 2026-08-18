@@ -5,34 +5,34 @@ from typing import Optional
 
 # --- Belief Quality ---
 
-def rmse(mean: torch.Tensor, groundTruth: torch.Tensor) -> float:
-    return torch.sqrt(torch.mean((mean - groundTruth) ** 2)).item()
+def rmse(mean: torch.Tensor, ground_truth: torch.Tensor) -> float:
+    return torch.sqrt(torch.mean((mean - ground_truth) ** 2)).item()
 
-def nlpd(mean: torch.Tensor, variance: torch.Tensor, groundTruth: torch.Tensor) -> float:
+def nlpd(mean: torch.Tensor, variance: torch.Tensor, ground_truth: torch.Tensor) -> float:
     """Negative Log Predictive Density — proper scoring rule for GP quality."""
     return (0.5 * torch.log(2 * torch.pi * variance) + 
-            0.5 * ((groundTruth - mean) ** 2) / variance).mean().item()
+            0.5 * ((ground_truth - mean) ** 2) / variance).mean().item()
 
-def normalizedTraceReduction(currentTrace: float, initialTrace: float) -> float:
-    return (initialTrace - currentTrace) / initialTrace
+def normalized_trace_reduction(current_trace: float, initial_trace: float) -> float:
+    return (initial_trace - current_trace) / initial_trace
 
 # def calibrationError(mean: torch.Tensor, variance: torch.Tensor, 
-#                      groundTruth: torch.Tensor, confidence: float = 0.95) -> float:
+#                      ground_truth: torch.Tensor, confidence: float = 0.95) -> float:
 #     """Fraction of truth values falling outside the credible interval."""
 #     std = variance.sqrt()
 #     z = 1.96  # 95% interval
 #     lower, upper = mean - z * std, mean + z * std
-#     coverage = ((groundTruth >= lower) & (groundTruth <= upper)).float().mean().item()
+#     coverage = ((ground_truth >= lower) & (ground_truth <= upper)).float().mean().item()
 #     return abs(coverage - confidence)  # 0 is perfect calibration
 
 # --- Planning Efficiency ---
 
-def informationGain(previousVariance: torch.Tensor, currentVariance: torch.Tensor) -> float:
+def information_gain(previous_variance: torch.Tensor, current_variance: torch.Tensor) -> float:
     """Reduction in total posterior entropy from one step to the next."""
-    return (previousVariance.sum() - currentVariance.sum()).item()
+    return (previous_variance.sum() - current_variance.sum()).item()
 
-def pathLength(positionHistory: list) -> float:
-    if len(positionHistory) < 2:
+def path_length(position_history: list) -> float:
+    if len(position_history) < 2:
         return 0.0
-    positions = np.array(positionHistory)
+    positions = np.array(position_history)
     return np.sum(np.linalg.norm(np.diff(positions, axis=0), axis=1))

@@ -29,7 +29,7 @@ beta_sweep = [20.0, 30.0, 40.0]
 gp_hyperparams = joblib.load("data/hyperparameters/gp_hyperparameters.pkl")
 seed = 42
 
-from environment.environment import generateRandomScenario
+from environment.environment import generate_random_scenario
 import random
 
 beta_tuning_scenarios = 100
@@ -38,10 +38,10 @@ scenarios = []
 for idx in range(beta_tuning_scenarios):
     random.seed(beta_tuning_seed + idx)
     scenarios.append(
-        generateRandomScenario(
-            sourceRange=source_range,
-            domainSize=domain_size,
-            intensityRange=intensity_range
+        generate_random_scenario(
+            source_range=source_range,
+            domain_size=domain_size,
+            intensity_range=intensity_range
         )
     )
 
@@ -87,13 +87,16 @@ def run_scenario(scenario, eval_x, gp_hyperparams, sigma, planner):
     )
 
     logger = Logger(
-        outputDirectory=f"results/beta_tuning/scenario_{scenarios.index(scenario):04d}",
-        groundTruth=ground_truth,
+        f"results/beta_tuning/scenario_{scenarios.index(scenario):04d}",
+        eval_x=eval_x,
+        vis_x=eval_x,
+        ground_truth_eval=torch.tensor(ground_truth),
+        ground_truth_vis=torch.tensor(ground_truth),
     )
-    logger.logStep(current_position, belief)
+    logger.log_step(current_position, belief)
 
     for t in range(1, n_steps):
-        current_position, current_heading = planner.computeNextPose(
+        current_position, current_heading = planner.compute_next_pose(
             current_position, current_heading, belief
         )
         measurement = plume(scenario, current_position) + np.random.normal(0, sigma)
@@ -102,8 +105,8 @@ def run_scenario(scenario, eval_x, gp_hyperparams, sigma, planner):
         ).unsqueeze(0)
         measurement_tensor = torch.tensor([measurement], dtype=torch.float32)
         belief.update(current_position_tensor, measurement_tensor)
-        logger.logStep(current_position, belief)
-    logger.saveHistory(f"beta_{planner.beta}_history.pkl")
+        logger.log_step(current_position, belief)
+    logger.save_history(f"beta_{planner.beta}_history.pkl")
 
 
 def main():
@@ -113,10 +116,10 @@ def main():
         planner = BayesianOptimizationPlanner(
             domain_size,
             max_step,
-            max_turn,
+            max_turn=max_turn,
             beta=beta,
-            numSteps=num_steps,
-            numTurns=num_turns,
+            num_steps=num_steps,
+            num_turns=num_turns,
         )
         for scenario in scenarios:
             print(f"Running scenario: {scenarios.index(scenario)}")

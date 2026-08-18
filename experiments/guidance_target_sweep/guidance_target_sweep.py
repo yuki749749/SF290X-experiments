@@ -9,7 +9,7 @@ import joblib
 log = logging.getLogger(__name__)
 
 
-from environment.environment import plume, generateRandomScenario
+from environment.environment import plume, generate_random_scenario
 from belief.belief import Belief, ExactGPModel
 
 from planners.diffusion_planner import DiffusionPlanner
@@ -189,10 +189,10 @@ def main(cfg):
 
     import random
     random.seed(cfg.planner_seed + cfg.scenario_idx)
-    scenario = generateRandomScenario(
-        sourceRange=tuple(cfg.source_range),
-        domainSize=tuple(cfg.domain_size),
-        intensityRange=tuple(cfg.intensity_range)
+    scenario = generate_random_scenario(
+        source_range=tuple(cfg.source_range),
+        domain_size=tuple(cfg.domain_size),
+        intensity_range=tuple(cfg.intensity_range)
     )
     evaluation_x = make_grid(
         domain_min=cfg.domain_min,

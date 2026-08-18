@@ -1,7 +1,6 @@
 import logging
 import os
 
-# from xml.parsers.expat import model
 import gpytorch
 import torch
 
@@ -9,9 +8,8 @@ log = logging.getLogger(__name__)
 import numpy as np
 import matplotlib.pyplot as plt
 import joblib
-import time
 
-from environment.environment import plume, generateRandomScenario
+from environment.environment import plume, generate_random_scenario
 from belief.belief import Belief, ExactGPModel
 from planners.planners import (
     LawnmowerPlanner,
@@ -24,42 +22,36 @@ from diffusion.diffusion import GaussianDiffusion
 from logger import Logger
 
 
-# scenarios = [[((5,5),100)],
-#              [((3,3),100), ((8,8),150)]]
-
-# scenarios = [[((5,5),100)]]
-
 scenarios = joblib.load("data/scenarios/test_scenarios_025.pkl")
-# scenarios = [generateRandomScenario(sourceRange=(1, 3), domainSize=(10, 10), intensityRange=(50, 200)) for _ in range(25)]
 
 
-def plotSimulationResults(
-    planner, scenario, positionHistory, meanHistory, varianceHistory, grid, nGrid
+def plot_simulation_results(
+    planner, scenario, position_history, mean_history, variance_history, grid, n_grid
 ):
     # Select specific timesteps to show (e.g., start, middle, end)
-    stepsToPlot = [0, len(positionHistory) // 2, len(positionHistory) - 1]
-    numSteps = len(stepsToPlot)
+    steps_to_plot = [0, len(position_history) // 2, len(position_history) - 1]
+    num_steps = len(steps_to_plot)
 
-    fig, axes = plt.subplots(numSteps, 3, figsize=(15, 5 * numSteps))
+    fig, axes = plt.subplots(num_steps, 3, figsize=(15, 5 * num_steps))
 
     # 1. Pre-calculate Ground Truth for the grid
-    groundTruthGrid = np.array([plume(scenario, p) for p in grid.numpy()]).reshape(
-        nGrid, nGrid
+    ground_truth_grid = np.array([plume(scenario, p) for p in grid.numpy()]).reshape(
+        n_grid, n_grid
     )
 
     # 2. Determine global min/max for consistent colorbars
-    v_min, v_max = groundTruthGrid.min(), groundTruthGrid.max()
-    var_max = max([var.max().item() for var in varianceHistory])
+    v_min, v_max = ground_truth_grid.min(), ground_truth_grid.max()
+    var_max = max([var.max().item() for var in variance_history])
 
-    for row, t in enumerate(stepsToPlot):
+    for row, t in enumerate(steps_to_plot):
         # Extract data for current timestep
-        pos = np.array(positionHistory[: t + 1])  # Path taken up to time t
-        mean = meanHistory[t].reshape(nGrid, nGrid).numpy()
-        var = varianceHistory[t].reshape(nGrid, nGrid).numpy()
+        pos = np.array(position_history[: t + 1])  # Path taken up to time t
+        mean = mean_history[t].reshape(n_grid, n_grid).numpy()
+        var = variance_history[t].reshape(n_grid, n_grid).numpy()
 
         # Column 1: Ground Truth + Path
         im0 = axes[row, 0].imshow(
-            groundTruthGrid.T,
+            ground_truth_grid.T,
             origin="lower",
             extent=[0, 10, 0, 10],
             vmin=v_min,
@@ -88,69 +80,39 @@ def plotSimulationResults(
         axes[row, 2].set_title(f"T={t}: GP Variance")
         fig.colorbar(im2, ax=axes[row, 2])
 
-        path = np.array(positionHistory[: t + 1])
+        path = np.array(position_history[: t + 1])
         for col in range(3):
             axes[row, col].plot(
                 path[:, 0], path[:, 1], "r.-", markersize=5, label="Path"
             )
 
-    plannerName = planner.__class__.__name__
-    outputDir = f"plots/scenario_{scenarios.index(scenario):04d}"
-    if not os.path.exists(outputDir):
-        os.makedirs(outputDir)
-    outputPath = f"{outputDir}/{plannerName}.png"
-    plt.savefig(outputPath)
+    planner_name = planner.__class__.__name__
+    output_dir = f"plots/scenario_{scenarios.index(scenario):04d}"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    output_path = f"{output_dir}/{planner_name}.png"
+    plt.savefig(output_path)
     plt.close()
 
 
 # AUV state
-currentHeading = np.pi / 4
-currentPosition = (0, 0)
-currentBelief = None
-maxStep = 1.0
-maxTurn = np.pi / 8
+current_heading = np.pi / 4
+current_position = (0, 0)
+current_belief = None
+max_step = 1.0
+max_turn = np.pi / 8
 
 
-domainSize = (10, 10)
+domain_size = (10, 10)
 sigma = 0.5  # measurement noise standard deviation
 
 gp_hyperparams_path = "data/hyperparameters/gp_hyperparameters.pkl"
 gp_hyperparams = joblib.load(gp_hyperparams_path)
-# betaHyperparametersPath = "data/hyperparameters/betaTuningResults.pkl"
 
 
-# planners = [BayesianOptimizationPlanner(domainSize,
-#                                         maxStep,
-#                                         maxTurn,
-#                                         boundaryBehavior='clamp',
-#                                         acquisitionFunction='ucb',
-#                                         beta=10.0,
-#                                         numSteps=20,
-#                                         numTurns=11),
-#             RandomPlanner(domainSize,
-#                           maxStep,
-#                           maxTurn,
-#                           boundaryBehavior='clamp'),
-#             LawnmowerPlanner(domainSize,
-#                             maxStep,
-#                             maxTurn=np.pi,
-#                             laneSpacing=1.0,
-#                             orientation='horizontal',
-#                             boundaryBehavior='clamp')]
-
-# planners = [BayesianOptimizationPlanner(domainSize,
-#                                         maxStep,
-#                                         maxTurn,
-#                                         boundaryBehavior='clamp',
-#                                         acquisitionFunction='ucb',
-#                                         beta=10.0,
-#                                         numSteps=20,
-#                                         numTurns=11)]
-# planners = [RandomPlanner(domainSize, maxStep, maxTurn)]
-# planners = [LawnmowerPlanner(domainSize, maxStep, maxTurn=np.pi)]
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 HORIZON = 16  # must match training
-REPLAN_EVERY = 15  # replan after 5 executed waypoints
+REPLAN_EVERY = 15  # replan after 15 executed waypoints
 TARGET_RETURN = 1.0  # upper-percentile target; tune to training data
 
 unet = TemporalUnet(
@@ -183,7 +145,7 @@ diffusion_model.eval()
 planners = [
     DiffusionPlanner(
         diffusion_model,
-        domain_size=domainSize,
+        domain_size=domain_size,
         horizon=HORIZON,
         replan_every=REPLAN_EVERY,
         target_return=TARGET_RETURN,
@@ -194,123 +156,103 @@ planners = [
 
 def main():
     print("Starting simulation...")
-    nGrid = 40
-    t1 = torch.linspace(0, domainSize[0], nGrid)
-    t2 = torch.linspace(0, domainSize[1], nGrid)
+    n_grid = 40
+    t1 = torch.linspace(0, domain_size[0], n_grid)
+    t2 = torch.linspace(0, domain_size[1], n_grid)
     g1, g2 = torch.meshgrid(t1, t2, indexing="ij")
-    testGrid = torch.stack([g1.flatten(), g2.flatten()], dim=-1)
+    test_grid = torch.stack([g1.flatten(), g2.flatten()], dim=-1)
 
     for planner in planners:
         print(f"Running planner: {planner}")
         for scenario in scenarios:
             print(f"Running scenario: {scenario}")
-            # start = time.time()
             planner.reset()
-            groundTruth_np = np.array([plume(scenario, p) for p in testGrid.numpy()])
-            groundTruth = torch.tensor(groundTruth_np, dtype=torch.float32)
+            ground_truth_np = np.array([plume(scenario, p) for p in test_grid.numpy()])
+            ground_truth = torch.tensor(ground_truth_np, dtype=torch.float32)
 
             logger = Logger(
-                outputDirectory=f"results/evaluation/scenario_{scenarios.index(scenario):04d}",
-                groundTruth=groundTruth,
+                f"results/evaluation/scenario_{scenarios.index(scenario):04d}",
+                eval_x=test_grid,
+                vis_x=test_grid,
+                ground_truth_eval=ground_truth,
+                ground_truth_vis=ground_truth,
             )
-            currentHeading = np.pi / 4
-            currentPosition = (0, 0)
+            current_heading = np.pi / 4
+            current_position = (0, 0)
 
-            measurement = plume(scenario, currentPosition) + np.random.normal(0, sigma)
-            currentPositionTensor = torch.tensor(
-                currentPosition, dtype=torch.float32
+            measurement = plume(scenario, current_position) + np.random.normal(0, sigma)
+            current_position_tensor = torch.tensor(
+                current_position, dtype=torch.float32
             ).unsqueeze(0)
-            measurementTensor = torch.tensor([measurement], dtype=torch.float32)
+            measurement_tensor = torch.tensor([measurement], dtype=torch.float32)
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
 
-            GPModel = ExactGPModel(currentPositionTensor, measurementTensor, likelihood)
+            gp_model = ExactGPModel(current_position_tensor, measurement_tensor, likelihood)
             if os.path.exists(gp_hyperparams_path):
                 with torch.no_grad():
-                    GPModel.mean_module.constant = torch.tensor(
+                    gp_model.mean_module.constant = torch.tensor(
                         gp_hyperparams["mean_constant"]
                     )
-                    GPModel.covar_module.base_kernel.lengthscale = torch.tensor(
+                    gp_model.covar_module.base_kernel.lengthscale = torch.tensor(
                         [
                             gp_hyperparams["lengthscale_0"],
                             gp_hyperparams["lengthscale_1"],
                         ]
                     )
-                    GPModel.covar_module.outputscale = torch.tensor(
+                    gp_model.covar_module.outputscale = torch.tensor(
                         gp_hyperparams["outputscale"]
                     )
-                    GPModel.likelihood.noise = torch.tensor(gp_hyperparams["noise"])
-                for param in GPModel.parameters():
+                    gp_model.likelihood.noise = torch.tensor(gp_hyperparams["noise"])
+                for param in gp_model.parameters():
                     param.requires_grad_(False)
-                # GPModel.likelihood.noise_covar.noise = sigma ** 2
-                # GPModel.likelihood.noise_covar.raw_noise.requires_grad_(False)
             else:
-                GPModel.likelihood.noise_covar.noise = sigma**2
-                GPModel.likelihood.noise_covar.raw_noise.requires_grad_(False)
-            # for name, param in GPModel.named_parameters():
-            #     print(name, param.data)
-            # print(f"mean constant:\t{GPModel.mean_module.constant.item():.3f}")
-            # print(f"output scale:\t{GPModel.covar_module.outputscale.item():.3f}")
-            # for i in range(2):
-            #     print(f"length scale {i}:\t{GPModel.covar_module.base_kernel.lengthscale[0, i].item():.3f}")
-            # print(f"noise:\t\t{GPModel.likelihood.noise.item():.3f}")
+                gp_model.likelihood.noise_covar.noise = sigma**2
+                gp_model.likelihood.noise_covar.raw_noise.requires_grad_(False)
 
-            currentBelief = Belief(GPModel, testGrid)
+            current_belief = Belief(gp_model, test_grid)
 
-            logger.logStep(currentPosition, currentBelief)
-            # t = time.time() - start
-            # print(f"Initialisation time: {t:.4f} seconds")
-            print("Initial RMSE:", logger.rmseHistory[-1])
-            # print("Initial NLPD:", logger.nlpdHistory[-1])
+            logger.log_step(current_position, current_belief)
+            print("Initial RMSE:", logger.rmse_history[-1])
             print(
                 "Initial normalized trace reduction:",
-                logger.normalizedTraceReductionHistory[-1],
+                logger.normalized_trace_reduction_history[-1],
             )
 
             for t in range(1, 50):
                 print(t)
-                # t = time.time() - start
-                # print(f"Time at step {t}: {t:.4f} seconds")
-                newPosition, newHeading = planner.computeNextPose(
-                    currentPosition, currentHeading, currentBelief
+                new_position, new_heading = planner.compute_next_pose(
+                    current_position, current_heading, current_belief
                 )
-                # t = time.time() - start
-                # print(f"Time after computing next pose: {t:.4f} seconds")
-                currentPosition = newPosition
-                currentHeading = newHeading
-                measurement = plume(scenario, currentPosition) + np.random.normal(
+                current_position = new_position
+                current_heading = new_heading
+                measurement = plume(scenario, current_position) + np.random.normal(
                     0, sigma
                 )
 
-                currentPositionTensor = torch.tensor(
-                    currentPosition, dtype=torch.float32
+                current_position_tensor = torch.tensor(
+                    current_position, dtype=torch.float32
                 ).unsqueeze(0)
-                measurementTensor = torch.tensor([measurement], dtype=torch.float32)
+                measurement_tensor = torch.tensor([measurement], dtype=torch.float32)
 
-                currentBelief.update(currentPositionTensor, measurementTensor)
-                # t = time.time() - start
-                # print(f"Time after belief update: {t:.4f} seconds")
+                current_belief.update(current_position_tensor, measurement_tensor)
+                logger.log_step(current_position, current_belief)
 
-                logger.logStep(currentPosition, currentBelief)
-                # t = time.time() - start
-                # print(f"Time after logging step: {t:.4f} seconds")
-
-            print("Final RMSE:", logger.rmseHistory[-1])
-            # print("Final NLPD:", logger.nlpdHistory[-1])
+            print("Final RMSE:", logger.rmse_history[-1])
             print(
                 "Final normalized trace reduction:",
-                logger.normalizedTraceReductionHistory[-1],
+                logger.normalized_trace_reduction_history[-1],
             )
 
-            plotSimulationResults(
+            plot_simulation_results(
                 planner,
                 scenario,
-                logger.positionHistory,
-                logger.meanHistory,
-                logger.varianceHistory,
-                testGrid,
-                nGrid,
+                logger.position_history,
+                logger.mean_history,
+                logger.variance_history,
+                test_grid,
+                n_grid,
             )
-            logger.saveHistory(filename=f"{planner.__class__.__name__}History.pkl")
+            logger.save_history(filename=f"{planner.__class__.__name__}History.pkl")
 
         print(f"Finished planner: {planner}")
 

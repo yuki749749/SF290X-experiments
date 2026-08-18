@@ -51,9 +51,9 @@ PLANNER_COLORS = [
 ]
 
 METRICS = [
-    ("rmseHistory",                     r"Normalized RMSE"),
-    # ("nlpdHistory",                     r"NLPD"),
-    ("normalizedTraceReductionHistory", r"Normalized trace reduction"),
+    ("rmse_history",                     r"Normalized RMSE"),
+    # ("nlpd_history",                     r"NLPD"),
+    ("normalized_trace_reduction_history", r"Normalized trace reduction"),
 ]
 
 

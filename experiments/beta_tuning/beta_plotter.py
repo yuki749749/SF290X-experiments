@@ -99,8 +99,8 @@ def load_beta_histories(results_dir: str):
         hist = joblib.load(fp)
         if beta not in beta_data:
             beta_data[beta] = {"rmse": [], "ntr": []}
-        beta_data[beta]["rmse"].append(hist["rmseHistory"])
-        beta_data[beta]["ntr"].append(hist["normalizedTraceReductionHistory"])
+        beta_data[beta]["rmse"].append(hist["rmse_history"])
+        beta_data[beta]["ntr"].append(hist["normalized_trace_reduction_history"])
 
     # convert lists → arrays, sort betas
     return {

@@ -161,7 +161,7 @@ class LawnmowerPlanner(BasePlanner):
         self.edge_turn_steps = edge_turn_steps
         self.lane_spacing = edge_turn_steps * max_step
         self._waypoints = self._build_path()
-        self._waypointIndex = 0
+        self._waypoint_index = 0
 
     def _build_path(self):
         """Pre-compute the full boustrophedon waypoint list."""
@@ -211,33 +211,33 @@ class LawnmowerPlanner(BasePlanner):
         # Build path lazily on first call
         if self._waypoints is None:
             self._waypoints = self._build_path()
-            self._waypointIndex = 0
+            self._waypoint_index = 0
 
         # Advance waypoint index if we're close enough to the current target
-        while self._waypointIndex < len(self._waypoints) - 1:
-            target = self._waypoints[self._waypointIndex]
+        while self._waypoint_index < len(self._waypoints) - 1:
+            target = self._waypoints[self._waypoint_index]
             dist = np.hypot(
                 target[0] - current_position[0], target[1] - current_position[1]
             )
             if dist < self.max_step * 0.5:  # within half a step = "arrived"
-                self._waypointIndex += 1
+                self._waypoint_index += 1
             else:
                 break
 
-        target = self._waypoints[self._waypointIndex]
+        target = self._waypoints[self._waypoint_index]
         dx = target[0] - current_position[0]
         dy = target[1] - current_position[1]
         dist = np.hypot(dx, dy)
 
         # Heading toward waypoint
-        desiredHeading = np.arctan2(dy, dx)
+        desired_heading = np.arctan2(dy, dx)
 
         # Clamp turn to max_turn (graceful degradation near kinematic limits)
-        headingError = np.arctan2(
-            np.sin(desiredHeading - current_heading),
-            np.cos(desiredHeading - current_heading),
+        heading_error = np.arctan2(
+            np.sin(desired_heading - current_heading),
+            np.cos(desired_heading - current_heading),
         )
-        turn = np.clip(headingError, -self.max_turn, self.max_turn)
+        turn = np.clip(heading_error, -self.max_turn, self.max_turn)
         new_heading = current_heading + turn
 
         # Move up to max_step toward waypoint
@@ -250,7 +250,7 @@ class LawnmowerPlanner(BasePlanner):
         return (new_position, new_heading)
 
     def reset(self, **kwargs):
-        self._waypointIndex = 0
+        self._waypoint_index = 0
 
 
 class RandomPlanner(BasePlanner):
@@ -339,16 +339,16 @@ class BayesianOptimizationPlanner(BasePlanner):
                 )
             else:
                 # In-domain: compute acquisition and pick best candidate
-                candidatePositionList, candidateHeadingList = self.generateCandidates(
+                candidate_position_list, candidate_heading_list = self.generate_candidates(
                     current_position, current_heading
                 )
-                acquisitionValues = self.computeAcquisition(
-                    current_belief, candidatePositionList
+                acquisition_values = self.compute_acquisition(
+                    current_belief, candidate_position_list
                 )
-                bestCandidatePosition = candidatePositionList[acquisitionValues.argmax()]
-                bestCandidateHeading = candidateHeadingList[acquisitionValues.argmax()]
-                new_position = tuple(bestCandidatePosition.tolist())
-                new_heading = bestCandidateHeading
+                best_candidate_position = candidate_position_list[acquisition_values.argmax()]
+                best_candidate_heading = candidate_heading_list[acquisition_values.argmax()]
+                new_position = tuple(best_candidate_position.tolist())
+                new_heading = best_candidate_heading
         else:
             new_heading = self.steer_back_heading(current_position, current_heading)
             step = self.max_step
@@ -380,7 +380,7 @@ class BayesianOptimizationPlanner(BasePlanner):
         centre_val = torch.sigmoid(torch.tensor(s * W / 2)) ** 2
         return (phi_x * phi_y) / (centre_val ** 2)
 
-    def computeAcquisition(self, current_belief, candidates):
+    def compute_acquisition(self, current_belief, candidates):
         means, variance = current_belief.predict(candidates)
         stds = variance.sqrt()
         if self.acquisition_function == "ucb":
@@ -392,36 +392,36 @@ class BayesianOptimizationPlanner(BasePlanner):
                 f"Unknown acquisition function: {self.acquisition_function}"
             )
 
-    def generateCandidates(
+    def generate_candidates(
         self, current_position, current_heading
     ):  # Add AUV dynamics constraints here later
         # Generate random candidates around current position
-        candidatePositionList = []
-        candidateHeadingList = []
+        candidate_position_list = []
+        candidate_heading_list = []
 
-        stepList = np.sqrt(
+        step_list = np.sqrt(
             np.linspace(self.min_step**2, self.max_step**2, self.num_steps)
         )
-        turnList = np.linspace(-self.max_turn, self.max_turn, self.num_turns)
-        for step in stepList:
-            for turn in turnList:
+        turn_list = np.linspace(-self.max_turn, self.max_turn, self.num_turns)
+        for step in step_list:
+            for turn in turn_list:
                 new_heading = current_heading + turn
                 new_position = (
                     current_position[0] + step * np.cos(new_heading),
                     current_position[1] + step * np.sin(new_heading),
                 )
-                candidatePositionList.append(new_position)
-                candidateHeadingList.append(new_heading)
+                candidate_position_list.append(new_position)
+                candidate_heading_list.append(new_heading)
 
         if (
-            len(candidatePositionList) == 0
+            len(candidate_position_list) == 0
         ):  # If no valid candidates found, stay in place
-            candidatePositionList.append(current_position)
-            candidateHeadingList.append(current_heading)
+            candidate_position_list.append(current_position)
+            candidate_heading_list.append(current_heading)
 
         return torch.tensor(
-            candidatePositionList, dtype=torch.float32
-        ), candidateHeadingList
+            candidate_position_list, dtype=torch.float32
+        ), candidate_heading_list
 
     def reset(self, **kwargs):
         self._step = 0

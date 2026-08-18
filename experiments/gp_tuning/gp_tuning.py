@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from belief.belief import ExactGPModel
-from environment.environment import plume, generateRandomScenario
+from environment.environment import plume, generate_random_scenario
 from utils import abs_path, get_output_dir
 
 log = logging.getLogger(__name__)
@@ -91,10 +91,10 @@ def main(cfg: DictConfig) -> None:
     for idx in range(cfg.gp_tuning_scenarios):
         random.seed(cfg.gp_tuning_seed + idx)
         scenarios.append(
-            generateRandomScenario(
-                sourceRange=tuple(cfg.source_range),
-                domainSize=tuple(cfg.domain_size),
-                intensityRange=tuple(cfg.intensity_range)
+            generate_random_scenario(
+                source_range=tuple(cfg.source_range),
+                domain_size=tuple(cfg.domain_size),
+                intensity_range=tuple(cfg.intensity_range)
             )
         )
     train_x = make_train_x(tuple(cfg.domain_size), cfg.n_observations)
