@@ -1,6 +1,7 @@
 defaults:
   - base
   - diffusion_model
+  - planner: bo
   - _self_
 
 training:
@@ -10,5 +11,10 @@ training:
   weight_decay: 1.0e-4
   eta_min: 1.0e-5
   ema_decay: 0.995
+
+horizon: 16
+stride: 4
+reward_key: rmse_history
+reward_type: rmse
 
 dataset_dir: ???

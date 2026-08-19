@@ -1,5 +1,6 @@
 import contextlib
 import os
+import numpy as np
 
 import hydra
 import logging
@@ -116,21 +117,37 @@ def main(cfg: DictConfig) -> None:
     train_path = os.path.join(dataset_dir, "training_data.pkl")
     val_path = os.path.join(dataset_dir, "validation_data.pkl")
 
+    from omegaconf import OmegaConf
+    max_step = float(OmegaConf.select(cfg, "planner.max_step", default=10.0))
+    initial_heading = float(OmegaConf.select(cfg, "planner.initial_heading", default=np.pi / 4))
+
     train_set = TrajectoryDataset(
         train_path,
         tuple(cfg.domain_size),
         cfg.domain_pad,
+        horizon=cfg.horizon,
+        stride=cfg.stride,
+        reward_key=cfg.reward_key,
+        reward_type=cfg.reward_type,
         crop_size=cfg.architecture.get("crop_size", 40),
         domain_min=list(cfg.domain_min),
         domain_max=list(cfg.domain_max),
+        max_step=max_step,
+        initial_heading=initial_heading,
     )
     val_set = TrajectoryDataset(
         val_path,
         tuple(cfg.domain_size),
         cfg.domain_pad,
+        horizon=cfg.horizon,
+        stride=cfg.stride,
+        reward_key=cfg.reward_key,
+        reward_type=cfg.reward_type,
         crop_size=cfg.architecture.get("crop_size", 40),
         domain_min=list(cfg.domain_min),
         domain_max=list(cfg.domain_max),
+        max_step=max_step,
+        initial_heading=initial_heading,
     )
 
     train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)

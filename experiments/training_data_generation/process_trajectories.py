@@ -159,19 +159,14 @@ def extract_windows(
 
 def collect_dataset(
     triples: list[tuple[str, str, str]],
-    horizon: int,
-    stride: int,
     reward_key: str,
-    reward_type: str = "rmse",
-    max_step: float = 10.0,
-    initial_heading: float = np.pi/4,
 ) -> tuple[list[dict], dict[str, int]]:
     """
-    Gather windows from specified (scenario, planner) pairs.
+    Gather raw trajectories from specified (scenario, planner) pairs.
 
     Returns:
-        dataset   : flat list of window dicts
-        counts    : per-planner window counts, for reporting
+        dataset   : flat list of trajectory dicts
+        counts    : per-planner trajectory counts, for reporting
     """
     dataset: list[dict] = []
     counts: dict[str, int] = {tag: 0 for tag in PLANNER_DIRS.values()}
@@ -185,17 +180,22 @@ def collect_dataset(
             skipped += 1
             continue
 
-        windows = extract_windows(history, horizon, stride, reward_key, reward_type, max_step, initial_heading)
-        dataset.extend(windows)
-        counts[planner_tag] = counts.get(planner_tag, 0) + len(windows)
+        trajectory = {
+            "positions": np.asarray(history["position_history"], dtype=np.float32),
+            "means": np.asarray(history["mean_history"], dtype=np.float32),
+            "variances": np.asarray(history["variance_history"], dtype=np.float32),
+            "rmse_history": np.asarray(history[reward_key], dtype=np.float32),
+            "planner": planner_tag,
+        }
+        dataset.append(trajectory)
+        counts[planner_tag] = counts.get(planner_tag, 0) + 1
 
     n_total = len(triples)
     n_loaded = n_total - skipped
     print(f"  Loaded {n_loaded}/{n_total} trajectories  ({skipped} skipped)")
     for tag, n in counts.items():
         if n:
-            print(f"    {tag}: {n:,} windows")
-    print(f"  Total windows: {len(dataset):,}")
+            print(f"    {tag}: {n:,} trajectories")
     return dataset, counts
 
 
@@ -240,10 +240,9 @@ def compute_stats(
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
-def plot_reward_distribution(dataset: list[dict], out_dir: str, prefix: str) -> None:
-    if not dataset:
+def plot_reward_distribution(rewards: np.ndarray, out_dir: str, prefix: str) -> None:
+    if rewards is None or len(rewards) == 0:
         return
-    rewards = np.array([d["r"] for d in dataset], dtype=np.float32)
 
     fig, ax = plt.subplots(figsize=(4.5, 3.5), constrained_layout=True)
     ax.hist(rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
@@ -278,6 +277,7 @@ def save_dataset(
     stats: dict,
     out_dir: str,
     prefix: str,
+    rewards: np.ndarray = None,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
     data_path  = os.path.join(out_dir, f"{prefix}_data.pkl")
@@ -287,7 +287,7 @@ def save_dataset(
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
 
-    plot_reward_distribution(dataset, out_dir, prefix)
+    plot_reward_distribution(rewards, out_dir, prefix)
 
     print(f"\nSaved {prefix} dataset -> {data_path}")
     print(f"Saved {prefix} stats   -> {stats_path}")
@@ -401,16 +401,35 @@ def main(cfg: DictConfig) -> None:
             continue
         print(f"\n=== Processing split '{prefix}' ({len(sdirs)} scenarios) ===")
         triples = collect_history_paths_for_dirs(sdirs)
-        dataset, counts = collect_dataset(
-            triples, horizon, stride, reward_key, reward_type, max_step, initial_heading
-        )
+        dataset, counts = collect_dataset(triples, reward_key)
         if not dataset:
-            print(f"No windows collected for split '{prefix}'")
+            print(f"No trajectories loaded for split '{prefix}'")
             continue
-        stats = compute_stats(dataset, horizon, stride, reward_key, counts)
-        print(f"\n--- {prefix.capitalize()} Dataset Statistics ---")
-        for k, v in stats.items():
-            print(f"  {k:<35}: {v}")
+
+        # Temporarily perform window extraction to compute statistics and plot reward distribution
+        windowed_dataset = []
+        window_counts = {tag: 0 for tag in PLANNER_DIRS.values()}
+        for traj in dataset:
+            history_mock = {
+                "position_history": traj["positions"],
+                "mean_history": traj["means"],
+                "variance_history": traj["variances"],
+                reward_key: traj["rmse_history"],
+            }
+            windows = extract_windows(
+                history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
+            )
+            windowed_dataset.extend(windows)
+            window_counts[traj["planner"]] += len(windows)
+
+        if not windowed_dataset:
+            print(f"No windows extracted for split '{prefix}' with current horizon/stride")
+            stats = {}
+        else:
+            stats = compute_stats(windowed_dataset, horizon, stride, reward_key, window_counts)
+            print(f"\n--- {prefix.capitalize()} Dataset Statistics ---")
+            for k, v in stats.items():
+                print(f"  {k:<35}: {v}")
 
         save_dataset(dataset, stats, out_dir, prefix)
 
