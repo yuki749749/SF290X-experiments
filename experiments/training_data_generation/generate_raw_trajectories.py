@@ -12,8 +12,8 @@ from joblib import Parallel, delayed
 
 def run_single_trajectory(scenario_idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x):
     # Set seeds dynamically for reproducibility
-    torch.manual_seed(cfg.seed)
-    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed + scenario_idx)
+    np.random.seed(cfg.seed + scenario_idx)
     import random
     random.seed(cfg.seed + scenario_idx)
 

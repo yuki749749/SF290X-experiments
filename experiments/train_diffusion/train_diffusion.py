@@ -110,22 +110,31 @@ def main(cfg: DictConfig) -> None:
     output_dir = get_output_dir()
     log.info(f"Output directory: {output_dir}")
 
-    dataset_path = abs_path(cfg.paths.trajectories.processed)
-    dataset = TrajectoryDataset(
-        dataset_path,
+    dataset_dir = abs_path(cfg.dataset_dir)
+    log.info(f"Loading dataset from: {dataset_dir}")
+
+    train_path = os.path.join(dataset_dir, "training_data.pkl")
+    val_path = os.path.join(dataset_dir, "validation_data.pkl")
+
+    train_set = TrajectoryDataset(
+        train_path,
         tuple(cfg.domain_size),
         cfg.domain_pad,
         crop_size=cfg.architecture.get("crop_size", 40),
         domain_min=list(cfg.domain_min),
         domain_max=list(cfg.domain_max),
     )
-    n_val = max(1, int(len(dataset) * cfg.training.val_fraction))
-    n_train = len(dataset) - n_val
-    train_set, val_set = random_split(
-        dataset, [n_train, n_val], generator=torch.Generator().manual_seed(cfg.seed)
+    val_set = TrajectoryDataset(
+        val_path,
+        tuple(cfg.domain_size),
+        cfg.domain_pad,
+        crop_size=cfg.architecture.get("crop_size", 40),
+        domain_min=list(cfg.domain_min),
+        domain_max=list(cfg.domain_max),
     )
-    train_loader = DataLoader(train_set, batch_size=64, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=64)
+
+    train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=cfg.training.batch_size)
     log.info(f"Training samples: {len(train_set)}  Validation samples: {len(val_set)}")
 
     backbone = TemporalUnet(

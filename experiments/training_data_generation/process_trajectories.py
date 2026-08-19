@@ -64,39 +64,35 @@ PLANNER_DIRS: dict[str, str] = {
 }
 # ──────────────────────────────────────────────────────────────────────────────
 
-SWEEP_ROOT = "results/generate_raw_trajectories/sweep"
-
-max_step = 10.0
-initial_heading = np.pi/4
-
-
 # ── Discovery helpers ─────────────────────────────────────────────────────────
 
 
-def collect_history_paths(sweep_dir: str) -> list[tuple[str, str, str]]:
+def get_scenario_dirs(sweep_dir: str) -> list[str]:
     """
-    Walk a sweep directory and return all (scenario_dir, planner_tag, pkl_path) triples.
-
-    Directory layout expected:
-        sweep_dir/
-            scenario_<idx>/
-                <planner_dir>/
-                    history.pkl
+    Find and return all scenario_* subdirectories in the sweep directory,
+    sorted numerically.
     """
-    triples: list[tuple[str, str, str]] = []
-
-    scenario_dirs = sorted(glob.glob(os.path.join(sweep_dir, "scenario_*")))
+    scenario_dirs = sorted(
+        glob.glob(os.path.join(sweep_dir, "scenario_*")),
+        key=lambda x: int(os.path.basename(x).split("_")[1])
+    )
     if not scenario_dirs:
         raise FileNotFoundError(
             f"No 'scenario_*' subdirectories found in '{sweep_dir}'."
         )
+    return scenario_dirs
 
+
+def collect_history_paths_for_dirs(scenario_dirs: list[str]) -> list[tuple[str, str, str]]:
+    """
+    Walk the provided scenario directories and return all (scenario_dir, planner_tag, pkl_path) triples.
+    """
+    triples: list[tuple[str, str, str]] = []
     for sdir in scenario_dirs:
         for planner_dir, planner_tag in PLANNER_DIRS.items():
             pkl = os.path.join(sdir, planner_dir, "history.pkl")
             if os.path.exists(pkl):
                 triples.append((sdir, planner_tag, pkl))
-
     return triples
 
 
@@ -108,6 +104,8 @@ def extract_windows(
     stride: int,
     reward_key: str,
     reward_type: str = "rmse",
+    max_step: float = 10.0,
+    initial_heading: float = np.pi/4,
 ) -> list[dict]:
     """
     Slide a window of length `horizon` over one trajectory.
@@ -118,19 +116,6 @@ def extract_windows(
     Each window dict contains:
         tau    : (horizon, 2)  float32  — [p_{t-1}, p_t, …, p_{t+H-2}]
                                           tau[0]=ghost, tau[1]=current, tau[2:]=future
-        r      : scalar        float32  — reward for the window (see reward_type)
-        b_mean : (n_eval,)     float32  — GP posterior mean at step t
-        b_var  : (n_eval,)     float32  — GP posterior variance at step t
-
-    reward_type options:
-        "rmse"            — (rmse[t] - rmse[t+H-2]) / rmse[t]
-                            Positive = RMSE decreased over the window.
-        "trace_reduction" — (ntr[t+H-2] - ntr[t]) / (1 - ntr[t])
-                            Equivalent to (Tr_t - Tr_{t+H-2}) / Tr_t.
-                            Fraction of remaining trace reduction achieved in window.
-
-    A fixed synthetic ghost (matching the inference value) is prepended at index 0
-    so that the loop can start at t=1 with a consistent positions[t-1] ghost.
     """
     if reward_type not in ("rmse", "trace_reduction"):
         raise ValueError(f"Unknown reward_type '{reward_type}'. Choose 'rmse' or 'trace_reduction'.")
@@ -148,8 +133,6 @@ def extract_windows(
     ghost = [-max_step * np.cos(initial_heading), -max_step * np.sin(initial_heading)]
 
     # Prepend ghost / null so that positions[0] = p_{-1} and all lists have length T+2.
-    # means/variances/rewards get a null placeholder at index 0 (never accessed;
-    # the loop starts at t=1).
     positions = [ghost] + positions
     means     = [None]  + means
     variances = [None]  + variances
@@ -175,26 +158,21 @@ def extract_windows(
 
 
 def collect_dataset(
-    sweep_dir: str,
+    triples: list[tuple[str, str, str]],
     horizon: int,
     stride: int,
     reward_key: str,
     reward_type: str = "rmse",
+    max_step: float = 10.0,
+    initial_heading: float = np.pi/4,
 ) -> tuple[list[dict], dict[str, int]]:
     """
-    Gather windows from all (scenario, planner) pairs in the sweep directory.
+    Gather windows from specified (scenario, planner) pairs.
 
     Returns:
         dataset   : flat list of window dicts
         counts    : per-planner window counts, for reporting
     """
-    triples = collect_history_paths(sweep_dir)
-    if not triples:
-        raise FileNotFoundError(
-            f"No history .pkl files found in '{sweep_dir}'. "
-            "Check that generate_raw_trajectories completed successfully."
-        )
-
     dataset: list[dict] = []
     counts: dict[str, int] = {tag: 0 for tag in PLANNER_DIRS.values()}
     skipped = 0
@@ -207,7 +185,7 @@ def collect_dataset(
             skipped += 1
             continue
 
-        windows = extract_windows(history, horizon, stride, reward_key, reward_type)
+        windows = extract_windows(history, horizon, stride, reward_key, reward_type, max_step, initial_heading)
         dataset.extend(windows)
         counts[planner_tag] = counts.get(planner_tag, 0) + len(windows)
 
@@ -262,14 +240,16 @@ def compute_stats(
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
-def plot_reward_distribution(dataset: list[dict], out_dir: str) -> None:
+def plot_reward_distribution(dataset: list[dict], out_dir: str, prefix: str) -> None:
+    if not dataset:
+        return
     rewards = np.array([d["r"] for d in dataset], dtype=np.float32)
 
     fig, ax = plt.subplots(figsize=(4.5, 3.5), constrained_layout=True)
     ax.hist(rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
     ax.set_xlabel("Reward $r$")
     ax.set_ylabel("Count")
-    ax.set_title(f"Reward distribution  ($n={len(rewards):,}$)", fontsize=10)
+    ax.set_title(f"{prefix.capitalize()} reward distribution  ($n={len(rewards):,}$)", fontsize=10)
 
     percentiles = [50, 75, 90, 95, 99]
     colors      = ["#D55E00", "#E69F00", "#009E73", "#0072B2", "#CC79A7"]
@@ -282,12 +262,12 @@ def plot_reward_distribution(dataset: list[dict], out_dir: str) -> None:
                label=f"mean = {rewards.mean():.3f}")
     ax.legend(frameon=False)
 
-    print("\n--- Reward Percentiles ---")
+    print(f"\n--- {prefix.capitalize()} Reward Percentiles ---")
     print(f"  {'mean':<6}: {rewards.mean():.4f}")
     for p, v in zip(percentiles, pct_values):
         print(f"  p{p:<5}: {v:.4f}")
 
-    plot_path = os.path.join(out_dir, "reward_distribution.pdf")
+    plot_path = os.path.join(out_dir, f"{prefix}_reward_distribution.pdf")
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved reward histogram -> {plot_path}")
@@ -297,30 +277,54 @@ def save_dataset(
     dataset: list[dict],
     stats: dict,
     out_dir: str,
-    central_data_path: str = None,
-    central_stats_path: str = None,
+    prefix: str,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
-    data_path  = os.path.join(out_dir, "training_data.pkl")
-    stats_path = os.path.join(out_dir, "training_data_stats.json")
+    data_path  = os.path.join(out_dir, f"{prefix}_data.pkl")
+    stats_path = os.path.join(out_dir, f"{prefix}_data_stats.json")
 
     joblib.dump(dataset, data_path)
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
 
-    plot_reward_distribution(dataset, out_dir)
+    plot_reward_distribution(dataset, out_dir, prefix)
 
-    print(f"\nSaved dataset -> {data_path}")
-    print(f"Saved stats   -> {stats_path}")
+    print(f"\nSaved {prefix} dataset -> {data_path}")
+    print(f"Saved {prefix} stats   -> {stats_path}")
 
-    if central_data_path is not None:
-        os.makedirs(os.path.dirname(central_data_path), exist_ok=True)
-        joblib.dump(dataset, central_data_path)
-        print(f"Saved copy of dataset to central path -> {central_data_path}")
-    if central_stats_path is not None:
-        with open(central_stats_path, "w") as f:
-            json.dump(stats, f, indent=2)
-        print(f"Saved copy of stats to central path -> {central_stats_path}")
+
+def split_scenario_dirs(
+    scenario_dirs: list[str],
+    train_frac: float,
+    val_frac: float,
+    test_frac: float,
+    seed: int = 42,
+) -> tuple[list[str], list[str], list[str]]:
+    import random
+    dirs = list(scenario_dirs)
+    rng = random.Random(seed)
+    rng.shuffle(dirs)
+
+    n = len(dirs)
+    if n == 0:
+        return [], [], []
+    if n == 1:
+        return dirs, [], []
+    if n == 2:
+        return dirs[:1], dirs[1:], []
+
+    n_train = max(1, int(n * train_frac))
+    n_val = max(0, int(n * val_frac))
+    if n_train + n_val > n:
+        n_train = n - n_val
+        if n_train < 1:
+            n_train = 1
+            n_val = n - 1
+
+    train_dirs = dirs[:n_train]
+    val_dirs = dirs[n_train:n_train + n_val]
+    test_dirs = dirs[n_train + n_val:]
+    return train_dirs, val_dirs, test_dirs
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -336,7 +340,7 @@ def main(cfg: DictConfig) -> None:
         sweep_dir = str(cfg.sweep_dir)
         print(f"Using explicitly configured sweep_dir:\n  {sweep_dir}")
     else:
-        sweep_root = str(OmegaConf.select(cfg, "sweep_root", default=SWEEP_ROOT))
+        sweep_root = str(OmegaConf.select(cfg, "sweep_root", default="results/generate_raw_trajectories/sweep"))
         sweep_dir  = find_latest_sweep(sweep_root)
         print(f"Auto-discovered latest sweep:\n  {sweep_dir}")
 
@@ -344,8 +348,16 @@ def main(cfg: DictConfig) -> None:
     stride      = int(cfg.stride)
     reward_key  = str(cfg.reward_key)
     reward_type = str(OmegaConf.select(cfg, "reward_type", default="rmse"))
-    out_dir     = get_output_dir()  # save processed data in the Hydra output directory for easy reference
-    # out_dir    = str(sweep_dir)  # save processed data in the same sweep directory for easy reference
+    out_dir     = get_output_dir()
+
+    # Retrieve max_step and initial_heading dynamically
+    max_step = float(OmegaConf.select(cfg, "planner.max_step", default=10.0))
+    initial_heading = float(OmegaConf.select(cfg, "planner.initial_heading", default=np.pi/4))
+
+    # Retrieve split fractions
+    train_fraction = float(OmegaConf.select(cfg, "train_fraction", default=0.8))
+    val_fraction   = float(OmegaConf.select(cfg, "val_fraction", default=0.1))
+    test_fraction  = float(OmegaConf.select(cfg, "test_fraction", default=0.1))
 
     print(
         f"\n=== Trajectory Post-Processing ===\n"
@@ -354,25 +366,53 @@ def main(cfg: DictConfig) -> None:
         f"  stride      : {stride}\n"
         f"  reward_key  : {reward_key}\n"
         f"  reward_type : {reward_type}\n"
+        f"  max_step    : {max_step}\n"
+        f"  heading     : {initial_heading:.4f}\n"
         f"  out_dir     : {out_dir}\n"
+        f"  splits      : train={train_fraction:.2f}, val={val_fraction:.2f}, test={test_fraction:.2f}\n"
     )
 
-    dataset, counts = collect_dataset(sweep_dir, horizon, stride, reward_key, reward_type)
-    stats           = compute_stats(dataset, horizon, stride, reward_key, counts)
+    # 1. Discover and sort scenario directories numerically
+    scenario_dirs = get_scenario_dirs(sweep_dir)
+    print(f"Discovered {len(scenario_dirs)} scenario directories.")
 
-    print("\n--- Dataset Statistics ---")
-    for k, v in stats.items():
-        print(f"  {k:<35}: {v}")
+    # 2. Split scenarios
+    seed = int(OmegaConf.select(cfg, "seed", default=42))
+    train_dirs, val_dirs, test_dirs = split_scenario_dirs(
+        scenario_dirs, train_fraction, val_fraction, test_fraction, seed=seed
+    )
+    print(
+        f"Splits:\n"
+        f"  Train      : {len(train_dirs)} scenarios\n"
+        f"  Validation : {len(val_dirs)} scenarios\n"
+        f"  Test       : {len(test_dirs)} scenarios"
+    )
 
-    central_processed_path = abs_path(cfg.paths.trajectories.processed)
-    if os.path.isdir(central_processed_path) or not central_processed_path.endswith(".pkl"):
-        central_data_path = os.path.join(central_processed_path, "training_data.pkl")
-        central_stats_path = os.path.join(central_processed_path, "training_data_stats.json")
-    else:
-        central_data_path = central_processed_path
-        central_stats_path = os.path.join(os.path.dirname(central_processed_path), "training_data_stats.json")
+    # 3. Process splits
+    splits = [
+        ("training", train_dirs),
+        ("validation", val_dirs),
+        ("testing", test_dirs),
+    ]
 
-    save_dataset(dataset, stats, out_dir, central_data_path, central_stats_path)
+    for prefix, sdirs in splits:
+        if not sdirs:
+            print(f"\nSkipping empty split '{prefix}'")
+            continue
+        print(f"\n=== Processing split '{prefix}' ({len(sdirs)} scenarios) ===")
+        triples = collect_history_paths_for_dirs(sdirs)
+        dataset, counts = collect_dataset(
+            triples, horizon, stride, reward_key, reward_type, max_step, initial_heading
+        )
+        if not dataset:
+            print(f"No windows collected for split '{prefix}'")
+            continue
+        stats = compute_stats(dataset, horizon, stride, reward_key, counts)
+        print(f"\n--- {prefix.capitalize()} Dataset Statistics ---")
+        for k, v in stats.items():
+            print(f"  {k:<35}: {v}")
+
+        save_dataset(dataset, stats, out_dir, prefix)
 
 
 if __name__ == "__main__":

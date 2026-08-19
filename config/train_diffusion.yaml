@@ -9,9 +9,6 @@ training:
   lr: 1.0e-4
   weight_decay: 1.0e-4
   eta_min: 1.0e-5
-  val_fraction: 0.1
   ema_decay: 0.995
 
-paths:
-  trajectories:
-    processed: data/trajectories/processed/training_data.pkl
+dataset_dir: ???
