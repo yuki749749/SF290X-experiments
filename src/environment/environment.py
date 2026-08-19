@@ -1,9 +1,8 @@
 import numpy as np
 import random
 
-def plume(scenario, position):
+def plume(scenario, position, diffusion_coefficient=2.0):
     # Placeholder for the actual plume function
-    diffusion_coefficient = 2.0
     concentration = 0.0
     for source in scenario:
         source_position, source_intensity = source

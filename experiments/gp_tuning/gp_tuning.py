@@ -48,13 +48,14 @@ def train_model(model, train_x, train_y, n_iter=10):
     model.eval()
 
 
-def fit_scenario(scenario, train_x, sigma, n_iter):
+def fit_scenario(scenario, train_x, sigma, n_iter, diffusion_coefficient):
     train_y = torch.tensor(
-        [plume(scenario, p) for p in train_x.numpy()], dtype=torch.float32
+        [plume(scenario, p, diffusion_coefficient) for p in train_x.numpy()], dtype=torch.float32
     ) + sigma * torch.randn(train_x.shape[0])
 
     likelihood = gpytorch.likelihoods.GaussianLikelihood()
-    model = ExactGPModel(train_x, train_y, likelihood)
+    prior = gpytorch.priors.GammaPrior(6.0, 6.0 / diffusion_coefficient)
+    model = ExactGPModel(train_x, train_y, likelihood, lengthscale_prior=prior)
     model.likelihood.noise_covar.noise = sigma**2
     model.likelihood.noise_covar.raw_noise.requires_grad_(False)
 
@@ -103,7 +104,7 @@ def main(cfg: DictConfig) -> None:
     log.info(f"Fitting GP hyperparameters over {len(scenarios)} scenarios...")
     for idx, scenario in enumerate(scenarios):
         log.info(f"Fitting scenario {idx + 1}/{len(scenarios)}...")
-        hyperparameters = fit_scenario(scenario, train_x, cfg.sigma, cfg.n_iter)
+        hyperparameters = fit_scenario(scenario, train_x, cfg.sigma, cfg.n_iter, cfg.diffusion_coefficient)
         results.append(hyperparameters)
 
     aggregated = aggregate_results(results)

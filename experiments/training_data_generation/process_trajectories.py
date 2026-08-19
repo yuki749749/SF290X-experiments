@@ -66,7 +66,7 @@ PLANNER_DIRS: dict[str, str] = {
 
 SWEEP_ROOT = "results/generate_raw_trajectories/sweep"
 
-max_step = 1.0
+max_step = 10.0
 initial_heading = np.pi/4
 
 
@@ -158,7 +158,7 @@ def extract_windows(
         return []  # trajectory too short for even one window
 
     # Fixed synthetic ghost matching the value used at inference time.
-    ghost = [-1.0 / np.sqrt(2), -1.0 / np.sqrt(2)]
+    ghost = [-max_step * np.cos(initial_heading), -max_step * np.sin(initial_heading)]
 
     # Prepend ghost / null so that positions[0] = p_{-1} and all lists have length T+2.
     # means/variances/rewards get a null placeholder at index 0 (never accessed;

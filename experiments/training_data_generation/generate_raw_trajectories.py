@@ -42,11 +42,12 @@ def get_planner(cfg):
         raise ValueError(f"Unknown planner type: {cfg.planner}")
 
 
-def initialize_belief(position, measurement, gp_hyperparams, sigma, eval_x):
+def initialize_belief(position, measurement, gp_hyperparams, sigma, eval_x, diffusion_coefficient=2.0):
     train_x = torch.tensor(position, dtype=torch.float32).unsqueeze(0)  # (1, 2)
     train_y = torch.tensor([measurement], dtype=torch.float32)  # (1,)
     likelihood = gpytorch.likelihoods.GaussianLikelihood()
-    model = ExactGPModel(train_x, train_y, likelihood)
+    prior = gpytorch.priors.GammaPrior(6.0, 6.0 / diffusion_coefficient)
+    model = ExactGPModel(train_x, train_y, likelihood, lengthscale_prior=prior)
     with torch.no_grad():
         model.mean_module.constant = torch.tensor(gp_hyperparams["mean_constant"])
         model.covar_module.base_kernel.lengthscale = torch.tensor(
@@ -72,17 +73,18 @@ def run_scenario(
     visualization_x,
     gp_hyperparams,
     output_dir,
+    diffusion_coefficient,
 ):
     planner.reset()
-    ground_truth_eval_np = np.array([plume(scenario, p) for p in evaluation_x.numpy()])
+    ground_truth_eval_np = np.array([plume(scenario, p, diffusion_coefficient) for p in evaluation_x.numpy()])
     ground_truth_eval = torch.tensor(ground_truth_eval_np, dtype=torch.float32)
 
     ground_truth_vis_np = np.array(
-        [plume(scenario, p) for p in visualization_x.numpy()]
+        [plume(scenario, p, diffusion_coefficient) for p in visualization_x.numpy()]
     )
     ground_truth_vis = torch.tensor(ground_truth_vis_np, dtype=torch.float32)
 
-    initial_measurement = plume(scenario, initial_position) + np.random.normal(0, sigma)
+    initial_measurement = plume(scenario, initial_position, diffusion_coefficient) + np.random.normal(0, sigma)
 
     belief = initialize_belief(
         position=initial_position,
@@ -90,6 +92,7 @@ def run_scenario(
         gp_hyperparams=gp_hyperparams,
         sigma=sigma,
         eval_x=evaluation_x,
+        diffusion_coefficient=diffusion_coefficient,
     )
 
     logger = Logger(
@@ -118,7 +121,7 @@ def run_scenario(
             current_position_tensor = torch.tensor(
                 current_position, dtype=torch.float32
             ).unsqueeze(0)
-            measurement = plume(scenario, current_position) + np.random.normal(0, sigma)
+            measurement = plume(scenario, current_position, diffusion_coefficient) + np.random.normal(0, sigma)
             measurement_tensor = torch.tensor([measurement], dtype=torch.float32)
 
             belief.update(current_position_tensor, measurement_tensor)
@@ -175,6 +178,7 @@ def main(cfg):
         visualization_x=visualization_x,
         gp_hyperparams=gp_hyperparams,
         output_dir=output_dir,
+        diffusion_coefficient=cfg.diffusion_coefficient,
     )
     logger.save_history("history.pkl")
 

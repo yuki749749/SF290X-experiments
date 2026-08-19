@@ -2,8 +2,8 @@ defaults:
   - /base
   - _self_
 
-max_step: 1.0
-min_step: 1.0
+max_step: 10.0
+min_step: 10.0
 max_turn: 0.3927            # π/8 rad
 initial_heading: 0.7854     # π/4 rad
 initial_position: [0.0, 0.0]

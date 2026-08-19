@@ -78,13 +78,14 @@ class DiffusionPlanner(BasePlanner):
         domain_min: Optional[Sequence[float]] = None,
         domain_max: Optional[Sequence[float]] = None,
         grid_size: int = 40,
+        max_step: float = 1.0,
     ):
         # BasePlanner needs domain_size but DiffusionPlanner doesn't use its
         # candidate-generation or boundary helpers, so we pass neutral values.
         super().__init__(
             domain_size=domain_size,
-            max_step=1.0,  # not used by this planner
-            min_step=1.0,  # not used by this planner
+            max_step=max_step,
+            min_step=max_step,
             max_turn=np.pi / 4,  # not used by this planner
             boundary_behavior="clamp",
         )

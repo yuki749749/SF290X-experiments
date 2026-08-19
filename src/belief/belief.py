@@ -3,7 +3,7 @@ import torch
 
 
 class ExactGPModel(gpytorch.models.ExactGP):
-    def __init__(self, train_x, train_y, likelihood):
+    def __init__(self, train_x, train_y, likelihood, lengthscale_prior=None):
         if train_x.dim() == 1:
             train_x = train_x.unsqueeze(0)
         super(ExactGPModel, self).__init__(train_x, train_y, likelihood)
@@ -14,9 +14,11 @@ class ExactGPModel(gpytorch.models.ExactGP):
         self.covar_module = gpytorch.kernels.ScaleKernel(
             gpytorch.kernels.MaternKernel(nu=2.5, ard_num_dims=2)
         )
+        if lengthscale_prior is None:
+            lengthscale_prior = gpytorch.priors.GammaPrior(6.0, 3.0)
         self.covar_module.register_prior(
             "lengthscale_prior",
-            gpytorch.priors.GammaPrior(6.0, 3.0),
+            lengthscale_prior,
             lambda module: module.base_kernel.lengthscale
         )
         self.likelihood = likelihood
