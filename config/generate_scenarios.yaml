@@ -1,9 +1,0 @@
-defaults:
-  - base
-  - _self_
-
-# Number of scenarios to generate
-num_scenarios: 100
-output_filename: scenarios.pkl
-output_path: null
-
