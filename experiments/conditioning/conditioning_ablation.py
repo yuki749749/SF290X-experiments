@@ -13,22 +13,52 @@ from environment.environment import generate_random_scenario
 from utils import abs_path, get_output_dir, make_grid, run_scenario, get_planner
 
 
-@hydra.main(config_path="../../config", config_name="conditioning_ablation", version_base="1.2")
-def main(cfg):
-    torch.manual_seed(cfg.planner_seed + cfg.scenario_idx)
-    np.random.seed(cfg.seed + cfg.scenario_idx)
-    output_dir = get_output_dir()
-    planner = get_planner(cfg)
+from joblib import Parallel, delayed
 
-    gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
+
+def run_single_ablation(scenario_idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x):
+    # Set seeds dynamically for reproducibility
+    torch.manual_seed(cfg.planner_seed + scenario_idx)
+    np.random.seed(cfg.seed + scenario_idx)
 
     import random
-    random.seed(cfg.planner_seed + cfg.scenario_idx)
+    random.seed(cfg.planner_seed + scenario_idx)
     scenario = generate_random_scenario(
         source_range=tuple(cfg.source_range),
         domain_size=tuple(cfg.domain_size),
         intensity_range=tuple(cfg.intensity_range)
     )
+
+    use_belief = cfg.planner.get("use_belief", True)
+    use_return = cfg.planner.get("use_return", True)
+    scenario_output_dir = os.path.join(
+        output_dir, 
+        f"scenario_{scenario_idx}", 
+        f"use_belief={use_belief},use_return={use_return}"
+    )
+
+    logger = run_scenario(
+        planner=get_planner(cfg),
+        initial_position=tuple(cfg.planner.initial_position),
+        initial_heading=cfg.planner.initial_heading,
+        n_timesteps=cfg.n_timesteps,
+        scenario=scenario,
+        scenario_idx=scenario_idx,
+        sigma=cfg.sigma,
+        evaluation_x=evaluation_x,
+        visualization_x=visualization_x,
+        gp_hyperparams=gp_hyperparams,
+        output_dir=scenario_output_dir,
+        diffusion_coefficient=cfg.diffusion_coefficient,
+    )
+    logger.save_history("history.pkl")
+
+
+@hydra.main(config_path="../../config", config_name="conditioning_ablation", version_base="1.2")
+def main(cfg):
+    output_dir = get_output_dir()
+    gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
+
     evaluation_x = make_grid(
         domain_min=cfg.domain_min,
         domain_max=cfg.domain_max,
@@ -47,21 +77,21 @@ def main(cfg):
         n_evaluations=cfg.n_visualizations,
     )
 
-    logger = run_scenario(
-        planner=planner,
-        initial_position=tuple(cfg.planner.initial_position),
-        initial_heading=cfg.planner.initial_heading,
-        n_timesteps=cfg.n_timesteps,
-        scenario=scenario,
-        scenario_idx=cfg.scenario_idx,
-        sigma=cfg.sigma,
-        evaluation_x=evaluation_x,
-        visualization_x=visualization_x,
-        gp_hyperparams=gp_hyperparams,
-        output_dir=output_dir,
-        diffusion_coefficient=cfg.diffusion_coefficient,
+    # Determine scenario indices to run
+    if "scenario_idx" in cfg and cfg.scenario_idx != 0:
+        scenario_indices = [cfg.scenario_idx]
+    else:
+        start = cfg.get("start_scenario_idx", 0)
+        count = cfg.get("n_scenarios", 1)
+        scenario_indices = list(range(start, start + count))
+
+    # Run in parallel using joblib
+    Parallel(n_jobs=cfg.n_jobs)(
+        delayed(run_single_ablation)(
+            idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x
+        )
+        for idx in scenario_indices
     )
-    logger.save_history("history.pkl")
 
 
 if __name__ == "__main__":

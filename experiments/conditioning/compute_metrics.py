@@ -292,7 +292,7 @@ def main():
 
     per_run_path = out_dir / "metrics_per_run.csv"
     df_runs.to_csv(per_run_path, index=False, float_format="%.6f")
-    print(f"\nPer-run CSV      → {per_run_path}")
+    print(f"\nPer-run CSV      -> {per_run_path}")
 
     # ------------------------------------------------------------------
     # Aggregated: mean + 95% CI per config
@@ -301,7 +301,7 @@ def main():
 
     agg_csv_path = out_dir / "metrics_aggregated.csv"
     df_agg.to_csv(agg_csv_path, index=False, float_format="%.6f")
-    print(f"Aggregated CSV   → {agg_csv_path}")
+    print(f"Aggregated CSV   -> {agg_csv_path}")
 
     # JSON: nested dict  {config: {metric: {mean, ci95_lo, ci95_hi}}}
     metric_cols = ["final_nrmse", "final_norm_trace_reduction", "fraction_in_domain"]
@@ -319,19 +319,19 @@ def main():
     agg_json_path = out_dir / "metrics_aggregated.json"
     with open(agg_json_path, "w") as f:
         json.dump(json_out, f, indent=2)
-    print(f"Aggregated JSON  → {agg_json_path}")
+    print(f"Aggregated JSON  -> {agg_json_path}")
 
     # ------------------------------------------------------------------
     # Pretty-print summary table
     # ------------------------------------------------------------------
-    print("\n── Aggregated metrics (mean [95% CI]) ──────────────────────────────────────────────")
+    print("\n== Aggregated metrics (mean [95% CI]) ==============================================")
     col_w = max(len(c) for c in df_agg["config"]) + 2
     header = (
         f"{'Config':<{col_w}}  {'Final NRMSE':>24}"
         f"  {'Norm. Trace Red.':>24}  {'Frac. in Domain':>24}"
     )
     print(header)
-    print("─" * len(header))
+    print("-" * len(header))
     for _, row in df_agg.iterrows():
         def fmt(col):
             m, lo, hi = row[f"{col}_mean"], row[f"{col}_ci95_lo"], row[f"{col}_ci95_hi"]
