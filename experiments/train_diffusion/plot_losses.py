@@ -22,29 +22,14 @@ import sys
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, COLORS, FIGURE_SIZES
+from utils import find_latest_run_dir
 
 apply_style()
 
 TRAIN_COLOR = COLORS["blue"]
 VAL_COLOR   = COLORS["vermillion"]
-
-
-def find_latest_run_dir(results_root: Path) -> Path:
-    """Return the most recently modified run dir under results/train_diffusion/run/*."""
-    search_root = results_root / "train_diffusion" / "run"
-    candidates = sorted(
-        (p for p in search_root.glob("*") if (p / "training_log.csv").exists()),
-        key=lambda p: p.stat().st_mtime,
-    )
-    if not candidates:
-        raise FileNotFoundError(
-            f"No training_log.csv found under '{search_root}'. "
-            "Pass --dir explicitly or check that --results-root is correct."
-        )
-    latest = candidates[-1]
-    print(f"Auto-detected latest run: {latest}")
-    return latest
 
 
 def load_csv(csv_path: Path) -> tuple[list[int], list[float], list[float]]:
@@ -118,7 +103,7 @@ def main():
 
     run_dir: Path = (
         args.dir if args.dir is not None
-        else find_latest_run_dir(args.results_root)
+        else find_latest_run_dir(args.results_root, "train_diffusion", "training_log.csv")
     )
 
     csv_path = run_dir / "training_log.csv"

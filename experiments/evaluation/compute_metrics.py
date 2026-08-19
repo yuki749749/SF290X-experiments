@@ -48,6 +48,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+from utils import resolve_sweep_root
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -96,20 +99,6 @@ def fraction_in_domain(position_history, domain_size) -> float:
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
-
-def resolve_sweep_root(sweep_dir: Path) -> Path:
-    """
-    If sweep_dir already contains history.pkl files at the expected depth
-    (*/*/history.pkl), return it directly.  Otherwise descend into the
-    lexicographically latest subdirectory (auto-selects most recent timestamp).
-    Mirrors resolve_sweep_root in plot_metrics.py.
-    """
-    if any(sweep_dir.glob("*/*/history.pkl")):
-        return sweep_dir
-    subdirs = sorted(d for d in sweep_dir.iterdir() if d.is_dir())
-    if not subdirs:
-        raise FileNotFoundError(f"No subdirectories found in {sweep_dir}")
-    return subdirs[-1]
 
 
 # ---------------------------------------------------------------------------

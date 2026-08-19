@@ -30,7 +30,9 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import PLANNER_COLORS, PLANNER_ORDER, PLANNER_DISPLAY_NAMES as _BASE_NAMES
+from utils import resolve_sweep_root
 
 PLANNER_DISPLAY_NAMES = {**_BASE_NAMES, "bo": "BO"}
 
@@ -63,14 +65,6 @@ METRICS = [
 
 
 # ── Discovery (shared with plot_metrics.py) ───────────────────────────────────
-
-def resolve_sweep_root(sweep_dir: Path) -> Path:
-    if any(sweep_dir.glob("*/*/history.pkl")):
-        return sweep_dir
-    subdirs = sorted(d for d in sweep_dir.iterdir() if d.is_dir())
-    if not subdirs:
-        raise FileNotFoundError(f"No subdirectories found in {sweep_dir}")
-    return subdirs[-1]
 
 
 def discover_results(sweep_root: Path) -> dict[str, list[dict]]:

@@ -33,7 +33,9 @@ from matplotlib.lines import Line2D
 
 # ── Publication style ─────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, FIGURE_SIZES, PLANNER_COLORS, PLANNER_ORDER, PLANNER_DISPLAY_NAMES
+from utils import resolve_sweep_root
 
 apply_style()
 
@@ -44,19 +46,6 @@ METRICS = [
 
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
-
-def resolve_sweep_root(sweep_dir: Path) -> Path:
-    """
-    If sweep_dir contains history.pkl files at the expected depth
-    (*/*/history.pkl), return it directly. Otherwise descend into the
-    lexicographically latest subdirectory (auto-selects most recent timestamp).
-    """
-    if any(sweep_dir.glob("*/*/history.pkl")):
-        return sweep_dir
-    subdirs = sorted(d for d in sweep_dir.iterdir() if d.is_dir())
-    if not subdirs:
-        raise FileNotFoundError(f"No subdirectories found in {sweep_dir}")
-    return subdirs[-1]
 
 
 def discover_results(sweep_root: Path) -> dict[str, list[dict]]:

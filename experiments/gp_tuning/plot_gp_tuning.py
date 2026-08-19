@@ -23,27 +23,12 @@ import numpy as np
 
 # ── Style ──────────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, COLORS, FIGURE_SIZES
+from utils import find_latest_run_dir
 
 # Disable grid lines as requested
 apply_style(grid=False)
-
-
-def find_latest_run_dir(results_root: Path) -> Path:
-    """Return the most recently modified run dir under results/gp_tuning/run/*."""
-    search_root = results_root / "gp_tuning" / "run"
-    candidates = sorted(
-        (p for p in search_root.glob("*") if (p / "gp_tuning_results.pkl").exists()),
-        key=lambda p: p.stat().st_mtime,
-    )
-    if not candidates:
-        raise FileNotFoundError(
-            f"No gp_tuning_results.pkl found under '{search_root}'. "
-            "Pass --dir explicitly or check that gp_tuning.py was run."
-        )
-    latest = candidates[-1]
-    print(f"Auto-detected latest run: {latest}")
-    return latest
 
 
 def plot_hyperparameter_distributions(results, output_path: Path):
@@ -115,7 +100,7 @@ def main():
 
     run_dir: Path = (
         args.dir if args.dir is not None
-        else find_latest_run_dir(args.results_root)
+        else find_latest_run_dir(args.results_root, "gp_tuning", "gp_tuning_results.pkl")
     )
 
     results_file = run_dir / "gp_tuning_results.pkl"

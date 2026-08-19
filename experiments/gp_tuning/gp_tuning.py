@@ -14,18 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from belief.belief import ExactGPModel
 from environment.environment import plume, generate_random_scenario
-from utils import abs_path, get_output_dir
+from utils import abs_path, get_output_dir, make_grid
 
 log = logging.getLogger(__name__)
-
-
-def make_train_x(domain_size, n_grid):
-    """Regular grid of training inputs."""
-    side = int(np.sqrt(n_grid))
-    t1 = torch.linspace(0, domain_size[0], side)
-    t2 = torch.linspace(0, domain_size[1], side)
-    g1, g2 = torch.meshgrid(t1, t2, indexing="ij")
-    return torch.stack([g1.flatten(), g2.flatten()], dim=-1)  # (side², 2)
 
 
 def train_model(model, train_x, train_y, n_iter=10):
@@ -98,7 +89,7 @@ def main(cfg: DictConfig) -> None:
                 intensity_range=tuple(cfg.intensity_range)
             )
         )
-    train_x = make_train_x(tuple(cfg.domain_size), cfg.n_observations)
+    train_x = make_grid(domain_min=[0.0, 0.0], domain_max=tuple(cfg.domain_size), n_evaluations=cfg.n_observations)
 
     results = []
     log.info(f"Fitting GP hyperparameters over {len(scenarios)} scenarios...")

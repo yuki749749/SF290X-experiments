@@ -53,7 +53,7 @@ plt.rcParams.update({
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-from utils import get_output_dir, abs_path
+from utils import get_output_dir, abs_path, find_latest_sweep
 
 # ── Planner-class → subdirectory name mapping ─────────────────────────────────
 # Keys are the directory names Hydra creates; values are the history-file prefix
@@ -71,19 +71,6 @@ initial_heading = np.pi/4
 
 
 # ── Discovery helpers ─────────────────────────────────────────────────────────
-
-def find_latest_sweep(sweep_root: str) -> str:
-    """Return the path to the most recently modified sweep timestamp directory."""
-    candidates = sorted(
-        glob.glob(os.path.join(sweep_root, "*")),
-        key=os.path.getmtime,
-    )
-    if not candidates:
-        raise FileNotFoundError(
-            f"No sweep directories found under '{sweep_root}'. "
-            "Run generate_raw_trajectories with -m first."
-        )
-    return candidates[-1]
 
 
 def collect_history_paths(sweep_dir: str) -> list[tuple[str, str, str]]:

@@ -33,6 +33,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+from utils import resolve_sweep_root
 
 # ── Slide-tuned style ─────────────────────────────────────────────────────────
 
@@ -70,16 +72,6 @@ METRICS = [
 
 
 # ── Directory resolution ───────────────────────────────────────────────────────
-
-def resolve_sweep_root(sweep_dir: Path) -> Path:
-    if any(sweep_dir.glob("scenario_*")):
-        return sweep_dir
-    subdirs = sorted(d for d in sweep_dir.iterdir() if d.is_dir())
-    if not subdirs:
-        raise FileNotFoundError(f"No subdirectories found in {sweep_dir}")
-    latest = subdirs[-1]
-    print(f"Auto-selected timestamp: {latest.name}")
-    return latest
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────

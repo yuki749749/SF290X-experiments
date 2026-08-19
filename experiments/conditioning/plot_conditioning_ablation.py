@@ -47,7 +47,9 @@ from matplotlib.lines import Line2D
 
 # ── Style ──────────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, FIGURE_SIZES
+from utils import resolve_sweep_root
 
 apply_style()
 
@@ -67,21 +69,6 @@ METRICS = [
 
 
 # ── Directory resolution ───────────────────────────────────────────────────────
-
-def resolve_sweep_root(sweep_dir: Path) -> Path:
-    """
-    If sweep_dir already contains scenario_* subdirs, return it directly.
-    Otherwise descend into the lexicographically latest subdirectory
-    (auto-selects the most recent timestamp).
-    """
-    if any(sweep_dir.glob("scenario_*")):
-        return sweep_dir
-    subdirs = sorted(d for d in sweep_dir.iterdir() if d.is_dir())
-    if not subdirs:
-        raise FileNotFoundError(f"No subdirectories found in {sweep_dir}")
-    latest = subdirs[-1]
-    print(f"Auto-selected timestamp: {latest.name}")
-    return latest
 
 
 # ── Data loading ───────────────────────────────────────────────────────────────
