@@ -64,7 +64,6 @@ VARIANTS = [
 
 METRICS = [
     ("rmse_history",                     "Normalized RMSE",            "lower is better"),
-    ("normalizedTraceReduction_history", "Normalized Trace Reduction", "higher is better"),
 ]
 
 

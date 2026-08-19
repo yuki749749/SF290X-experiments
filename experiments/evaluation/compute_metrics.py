@@ -10,10 +10,6 @@ Metrics computed
       Last value of the precomputed ``rmse_history`` stored in history.pkl.
       Consistent with the key used in plot_metrics.py.
 
-  final_norm_trace_reduction
-      Last value of the precomputed ``normalizedTraceReduction_history``.
-      Consistent with the key used in plot_metrics.py.
-
   fraction_in_domain
       Fraction of visited waypoints that lie inside [0, W] × [0, H]:
 
@@ -66,17 +62,6 @@ def final_nrmse(history: dict) -> float:
     Consistent with the key name used in plot_metrics.py.
     """
     vals = history.get("rmse_history")
-    if vals is None or len(vals) == 0:
-        return float("nan")
-    return float(vals[-1])
-
-
-def final_norm_trace_reduction(history: dict) -> float:
-    """
-    Read the last value of the precomputed normalizedTraceReduction_history.
-    Consistent with the key name used in plot_metrics.py.
-    """
-    vals = history.get("normalizedTraceReduction_history")
     if vals is None or len(vals) == 0:
         return float("nan")
     return float(vals[-1])
@@ -188,7 +173,6 @@ def compute(sweep_dir: Path, domain_size: tuple[float, float]) -> pd.DataFrame:
             "scenario":                   scenario,
             "config":                     config,
             "final_nrmse":                final_nrmse(history),
-            "final_norm_trace_reduction":  final_norm_trace_reduction(history),
             "fraction_in_domain":         fraction_in_domain(pos_hist, domain_size),
         })
         print(f"  OK  {scenario}/{config}")
@@ -209,7 +193,7 @@ def aggregate(
     configs and metrics so results are stable between runs.
     """
     rng = np.random.default_rng(seed)
-    metric_cols = ["final_nrmse", "final_norm_trace_reduction", "fraction_in_domain"]
+    metric_cols = ["final_nrmse", "fraction_in_domain"]
     rows = []
     for config, grp in df.groupby("config"):
         row = {"config": config, "n_scenarios": len(grp)}
@@ -311,7 +295,7 @@ def main():
     print(f"Aggregated CSV   -> {agg_csv_path}")
 
     # JSON: nested dict  {config: {metric: {mean, ci95_lo, ci95_hi}}}
-    metric_cols = ["final_nrmse", "final_norm_trace_reduction", "fraction_in_domain"]
+    metric_cols = ["final_nrmse", "fraction_in_domain"]
     json_out = {}
     for _, row in df_agg.iterrows():
         config = row["config"]
@@ -335,7 +319,7 @@ def main():
     col_w = max(len(c) for c in df_agg["config"]) + 2
     header = (
         f"{'Config':<{col_w}}  {'Final NRMSE':>24}"
-        f"  {'Norm. Trace Red.':>24}  {'Frac. in Domain':>24}"
+        f"  {'Frac. in Domain':>24}"
     )
     print(header)
     print("-" * len(header))
@@ -346,7 +330,6 @@ def main():
         print(
             f"{row['config']:<{col_w}}  "
             f"{fmt('final_nrmse'):>24}  "
-            f"{fmt('final_norm_trace_reduction'):>24}  "
             f"{fmt('fraction_in_domain'):>24}"
         )
     print()

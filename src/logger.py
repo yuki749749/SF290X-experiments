@@ -16,15 +16,12 @@ class Logger:
         self.variance_history = []
         self.rmse_history = []
         # self.nlpd_history = []
-        self.normalized_trace_reduction_history = []
-        self.initial_trace = None
 
     def log_step(self, position, belief):
         mean_vis, var_vis = belief.predict(self.vis_x)
         mean_eval, var_eval = belief.predict(self.eval_x)
         
-        if self.initial_trace is None:
-            self.initial_trace = var_eval.sum().item()
+
         self.position_history.append(position)
         self.mean_history.append(mean_vis)
         self.variance_history.append(var_vis)
@@ -33,8 +30,7 @@ class Logger:
         self.rmse_history.append(rmse)
         # nlpd = self.computeNLPD(belief, self.ground_truth)
         # self.nlpd_history.append(nlpd)
-        self.normalized_trace_reduction = self.compute_normalized_trace_reduction(var_eval)
-        self.normalized_trace_reduction_history.append(self.normalized_trace_reduction)
+
 
     def save_history(self, filename):
         if not os.path.exists(self.output_directory):
@@ -50,7 +46,6 @@ class Logger:
             'variance_history': self.variance_history,
             'rmse_history': self.rmse_history,
             # 'nlpd_history': self.nlpd_history,
-            'normalized_trace_reduction_history': self.normalized_trace_reduction_history
         }, output_path)
 
     def compute_rmse(self, mean):
@@ -62,8 +57,4 @@ class Logger:
 
     # def computeNLPD(self, belief, ground_truth):
     #     return gpytorch.metrics.negative_log_predictive_density(belief.likelihood(), ground_truth).item()
-    
-    
-    def compute_normalized_trace_reduction(self, variance):
-        current_trace = variance.sum().item()
-        return (self.initial_trace - current_trace) / self.initial_trace
+

@@ -62,7 +62,6 @@ apply_style()
 
 METRICS = [
     ("rmse_history",                     "Final RMSE",             "lower is better",  True),
-    ("normalizedTraceReduction_history", "Final Trace Reduction",  "higher is better", False),
 ]
 
 SUBDIR_RE = re.compile(
@@ -179,6 +178,8 @@ def plot_heatmaps(
     fig, axes = plt.subplots(
         1, n_metrics, figsize=(3.6 * n_metrics, 3.2), constrained_layout=True
     )
+    if n_metrics == 1:
+        axes = [axes]
 
     for ax, (metric_key, metric_label, direction, lower_is_better) in zip(axes, METRICS):
         grid_mu = np.full((len(returns), len(scales)), np.nan)
@@ -242,9 +243,12 @@ def plot_curves(
     ls_cycle = list(itertools.islice(itertools.cycle(LINESTYLES), len(returns)))
     return_ls = {r: ls_cycle[i] for i, r in enumerate(returns)}
 
+    figsize = FIGURE_SIZES["single"] if len(METRICS) == 1 else FIGURE_SIZES["double_col"]
     fig, axes = plt.subplots(
-        1, len(METRICS), figsize=FIGURE_SIZES["double_col"], constrained_layout=True
+        1, len(METRICS), figsize=figsize, constrained_layout=True
     )
+    if len(METRICS) == 1:
+        axes = [axes]
 
     for ax, (metric_key, metric_label, direction, _) in zip(axes, METRICS):
         for w in scales:

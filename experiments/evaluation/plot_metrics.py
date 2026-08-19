@@ -41,7 +41,6 @@ apply_style()
 
 METRICS = [
     ("rmse_history",                     r"Normalized RMSE"),
-    ("normalizedTraceReduction_history", r"Normalized Trace Reduction"),
 ]
 
 

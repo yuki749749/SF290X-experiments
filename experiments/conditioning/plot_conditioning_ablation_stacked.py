@@ -67,7 +67,6 @@ VARIANTS = [
 
 METRICS = [
     ("rmse_history",                     "NRMSE"),
-    ("normalizedTraceReduction_history", "NTR"),
 ]
 
 
@@ -115,7 +114,8 @@ def mean_ci(
 def plot_stacked(sweep_root: Path, output_path: Path) -> None:
     rng = np.random.default_rng()
 
-    fig, axes = plt.subplots(2, 1, figsize=(8, 7), constrained_layout=True)
+    fig, axes = plt.subplots(1, 1, figsize=(8, 4.5), constrained_layout=True)
+    axes = [axes]
 
     for ax, (metric_key, metric_label) in zip(axes, METRICS):
         for (_, _, dir_suffix, label, color, ls) in VARIANTS:
@@ -152,7 +152,7 @@ def plot_stacked(sweep_root: Path, output_path: Path) -> None:
     )
 
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
-    print(f"Saved → {output_path}")
+    print(f"Saved -> {output_path}")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
