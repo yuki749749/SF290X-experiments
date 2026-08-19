@@ -17,8 +17,6 @@ intensity_range: [50, 200]
 sigma: 0.5
 seed: 42
 planner_seed: 1042
-gp_tuning_seed: 10000
-gp_tuning_scenarios: 100
 
 
 # ── Evaluation grid ────────────────────────────────────────────────────────────
@@ -29,9 +27,5 @@ n_visualizations: 1600     # 40²
 paths:
   hyperparameters:
     gp: data/hyperparameters/gp_hyperparameters.pkl
-  results:
-    gp_tuning: results/gp_tuning/
-    diffusion_training: results/train_diffusion/
   trajectories:
-    raw: data/trajectories/raw
     processed: data/trajectories/processed

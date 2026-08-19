@@ -4,3 +4,5 @@ defaults:
 
 n_observations: 64
 n_iter: 5
+gp_tuning_seed: 10000
+gp_tuning_scenarios: 100
