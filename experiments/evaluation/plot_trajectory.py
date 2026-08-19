@@ -33,55 +33,9 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from plot_style import apply_style
+from evaluation_utils import to_grid, find_history_files, label_from_path, add_domain_box
 
 apply_style(grid=False)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def to_grid(arr, side):
-    """Flat tensor or ndarray → (side, side) numpy array."""
-    if hasattr(arr, "numpy"):
-        arr = arr.numpy()
-    return np.asarray(arr).reshape(side, side)
-
-
-def find_history_files(sweep_root: Path) -> list[Path]:
-    hits = sorted(sweep_root.glob("*/*/history.pkl"))
-    if hits:
-        return hits
-    subdirs = sorted(d for d in sweep_root.iterdir() if d.is_dir())
-    if subdirs:
-        hits = sorted(subdirs[-1].glob("*/*/history.pkl"))
-    return hits
-
-
-def label_from_path(pkl_path: Path) -> str:
-    parts = pkl_path.parts
-    planner  = parts[-2]
-    scenario = parts[-3]
-    return f"{scenario} / {planner}"
-
-
-def add_domain_box(ax, domain_size, pad):
-    """
-    Draw a dashed white rectangle marking the domain boundary [0,W]x[0,H],
-    and set axis limits to domain + pad on all sides so out-of-domain
-    trajectory segments are visible.
-    """
-    W, H = domain_size
-    rect = mpatches.Rectangle(
-        (0, 0), W, H,
-        linewidth=1.2,
-        edgecolor="white",
-        facecolor="none",
-        linestyle="--",
-        zorder=5,
-    )
-    ax.add_patch(rect)
-    ax.set_xlim(-pad, W + pad)
-    ax.set_ylim(-pad, H + pad)
 
 
 # ---------------------------------------------------------------------------

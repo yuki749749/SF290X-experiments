@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, FIGURE_SIZES
 from utils import resolve_sweep_root
+from evaluation_utils import mean_ci_bootstrap as mean_ci
 
 apply_style()
 
@@ -99,40 +100,6 @@ def load_variant(sweep_root: Path, dir_suffix: str, metric_key: str) -> np.ndarr
     padded  = [a + [a[-1]] * (max_len - len(a)) for a in arrays]
     return np.array(padded)   # (n_scenarios, T)
 
-
-def mean_ci(
-    matrix: np.ndarray,
-    n_bootstrap: int = 10_000,
-    rng: np.random.Generator | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Return (mean, lower_95, upper_95) across axis=0 using a percentile
-    bootstrap.  Each column (time step) is resampled independently.
-
-    Makes no normality assumption — appropriate for the small scenario counts
-    typical in sweep evaluations.  Matches the CI method in compute_metrics.py.
-
-    Parameters
-    ----------
-    matrix      : (n_scenarios, T) array of metric values
-    n_bootstrap : number of bootstrap replicates (default 10 000)
-    rng         : optional Generator for reproducibility
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    n = matrix.shape[0]
-    mu = matrix.mean(axis=0)
-
-    if n == 1:
-        return mu, mu.copy(), mu.copy()
-
-    # Resample scenario indices: (n_bootstrap, n)
-    idx = rng.integers(0, n, size=(n_bootstrap, n))
-    # Boot means: (n_bootstrap, T)
-    boot_means = matrix[idx].mean(axis=1)
-    lo, hi = np.percentile(boot_means, [2.5, 97.5], axis=0)
-    return mu, lo, hi
 
 
 # ── Plotting ───────────────────────────────────────────────────────────────────

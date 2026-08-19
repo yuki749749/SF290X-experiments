@@ -36,64 +36,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, FIGURE_SIZES, PLANNER_COLORS, PLANNER_ORDER, PLANNER_DISPLAY_NAMES
 from utils import resolve_sweep_root
+from evaluation_utils import discover_results, extract_metric, mean_ci
 
 apply_style()
 
 METRICS = [
     ("rmse_history",                     r"Normalized RMSE"),
 ]
-
-
-# ── Discovery ─────────────────────────────────────────────────────────────────
-
-
-def discover_results(sweep_root: Path) -> dict[str, list[dict]]:
-    """
-    Walk sweep_root and collect history dicts keyed by planner name.
-
-    Expected layout:
-        sweep_root/scenario_<i>/<planner>/history.pkl
-
-    Returns:
-        data[planner_name] -> list of history dicts (one per scenario)
-    """
-    data: dict[str, list[dict]] = {}
-    pkl_files = sorted(sweep_root.glob("*/*/history.pkl"))
-
-    if not pkl_files:
-        raise FileNotFoundError(f"No history.pkl files found under {sweep_root}")
-
-    for pkl_path in pkl_files:
-        # Parts relative to sweep_root: scenario_<i> / <planner> / history.pkl
-        rel_parts = pkl_path.relative_to(sweep_root).parts
-        if len(rel_parts) != 3:
-            print(f"  Skipping unexpected path structure: {pkl_path}", file=sys.stderr)
-            continue
-        planner_name = rel_parts[-2]   # e.g. 'bo', 'lawnmower', 'diffusion'
-        history = joblib.load(pkl_path)
-        data.setdefault(planner_name, []).append(history)
-
-    return data
-
-
-# ── Metric helpers ─────────────────────────────────────────────────────────────
-
-def extract_metric(runs: list[dict], key: str) -> np.ndarray:
-    """
-    Stack metric histories → (n_runs, T).
-    Shorter runs are padded to max length by repeating their last value.
-    """
-    arrays = [[float(v) for v in h[key]] for h in runs]
-    max_len = max(len(a) for a in arrays)
-    padded = [a + [a[-1]] * (max_len - len(a)) for a in arrays]
-    return np.array(padded)
-
-
-def mean_ci(matrix: np.ndarray, z: float = 1.96):
-    """Return (mean, lower_95, upper_95) across axis=0."""
-    mu  = matrix.mean(axis=0)
-    sem = matrix.std(axis=0, ddof=min(1, matrix.shape[0] - 1)) / np.sqrt(matrix.shape[0])
-    return mu, mu - z * sem, mu + z * sem
 
 
 # ── Plotting ──────────────────────────────────────────────────────────────────
