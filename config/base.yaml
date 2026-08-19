@@ -26,6 +26,6 @@ n_visualizations: 1600     # 40²
 # ── Paths ─────────────────────────────────────────────────────────────────────
 paths:
   hyperparameters:
-    gp: data/hyperparameters/gp_hyperparameters.pkl
+    gp: results/gp_tuning/run/2026-08-19_14-42-56/gp_hyperparameters.pkl
   trajectories:
     processed: data/trajectories/processed

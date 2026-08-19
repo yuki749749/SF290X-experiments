@@ -109,11 +109,7 @@ def main(cfg: DictConfig) -> None:
 
     aggregated = aggregate_results(results)
 
-    # 1. Save aggregated hyperparameters in data directory
-    gp_output_path = abs_path(cfg.paths.hyperparameters.gp)
-    os.makedirs(os.path.dirname(gp_output_path), exist_ok=True)
-    joblib.dump(aggregated, gp_output_path)
-    log.info(f"Saved aggregated GP hyperparameters to central path: {gp_output_path}")
+    # Save results inside Hydra run folder for reference (automatic central save removed)
 
     # 2. Save both aggregated and full results inside Hydra run folder for reference
     results_path = os.path.join(output_dir, "gp_tuning_results.pkl")
