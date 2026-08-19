@@ -93,6 +93,16 @@ def plot_history(
     domain_size: tuple[float, float],
     domain_pad: float = 1.0,
 ) -> None:
+    try:
+        from omegaconf import OmegaConf
+        cfg_path = Path(pkl_path).parent.parent.parent / ".hydra" / "config.yaml"
+        if cfg_path.exists():
+            cfg = OmegaConf.load(cfg_path)
+            domain_size = tuple(cfg.get("domain_size", domain_size))
+            domain_pad = float(cfg.get("domain_pad", domain_pad))
+    except Exception:
+        pass
+
     history = joblib.load(pkl_path)
 
     means        = history["mean_history"]
@@ -208,7 +218,7 @@ def plot_history(
     out_path = pkl_path.parent / "evaluation_grid.pdf"
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved → {out_path}")
+    print(f"  Saved -> {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -227,16 +237,16 @@ def main():
         "--domain_size",
         type=float,
         nargs=2,
-        default=[15.0, 15.0],
+        default=[300.0, 300.0],
         metavar=("W", "H"),
-        help="Physical domain size used during evaluation (default: 10 10).",
+        help="Physical domain size used during evaluation (default: 300 300).",
     )
     parser.add_argument(
         "--domain_pad",
         type=float,
-        default=5.0,
+        default=50.0,
         metavar="PAD",
-        help="Padding (in domain units) shown around the domain boundary (default: 1.0).",
+        help="Padding (in domain units) shown around the domain boundary (default: 50.0).",
     )
     args = parser.parse_args()
 

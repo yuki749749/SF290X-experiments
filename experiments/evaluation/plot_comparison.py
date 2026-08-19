@@ -167,6 +167,16 @@ def plot_1x5(
     """
     assert len(pkl_paths) == 4, "Exactly 4 pkl paths required for 1×5 layout."
 
+    try:
+        from omegaconf import OmegaConf
+        cfg_path = Path(pkl_paths[0]).parent.parent.parent / ".hydra" / "config.yaml"
+        if cfg_path.exists():
+            cfg = OmegaConf.load(cfg_path)
+            domain_size = tuple(cfg.get("domain_size", domain_size))
+            domain_pad = float(cfg.get("domain_pad", domain_pad))
+    except Exception:
+        pass
+
     # ------------------------------------------------------------------
     # Load all histories
     # ------------------------------------------------------------------
@@ -356,13 +366,13 @@ def main():
         "--domain_size",
         type=float,
         nargs=2,
-        default=[15.0, 15.0],
+        default=[300.0, 300.0],
         metavar=("W", "H"),
     )
     parser.add_argument(
         "--domain_pad",
         type=float,
-        default=5.0,
+        default=50.0,
         metavar="PAD",
     )
     args = parser.parse_args()

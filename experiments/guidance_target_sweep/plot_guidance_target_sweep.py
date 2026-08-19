@@ -219,7 +219,7 @@ def plot_heatmaps(
                     )
 
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
-    print(f"Saved heatmap → {output_path}")
+    print(f"Saved heatmap -> {output_path}")
 
 
 # ── Time-series plot ───────────────────────────────────────────────────────────
@@ -283,7 +283,7 @@ def plot_curves(
     )
 
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
-    print(f"Saved curves  → {output_path}")
+    print(f"Saved curves  -> {output_path}")
 
 
 # ── Summary table ──────────────────────────────────────────────────────────────

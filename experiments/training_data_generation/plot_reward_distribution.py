@@ -62,7 +62,7 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
         print(f"  p{p:<5}: {v:.4f}")
 
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
-    print(f"Saved → {output_path}")
+    print(f"Saved -> {output_path}")
 
 
 def main():

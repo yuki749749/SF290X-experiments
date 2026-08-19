@@ -77,7 +77,7 @@ def plot_losses(
     fig.tight_layout()
 
     fig.savefig(out_path, format="pdf", bbox_inches="tight")
-    print(f"Saved plot → {out_path}")
+    print(f"Saved plot -> {out_path}")
     plt.close(fig)
 
 

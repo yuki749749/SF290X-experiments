@@ -240,9 +240,9 @@ def main():
         "--domain_size",
         type=float,
         nargs=2,
-        default=[15.0, 15.0],
+        default=[300.0, 300.0],
         metavar=("W", "H"),
-        help="Physical domain size used during evaluation (default: 15 15).",
+        help="Physical domain size used during evaluation (default: 300 300).",
     )
     parser.add_argument(
         "--out_dir",
@@ -266,9 +266,16 @@ def main():
     )
     args = parser.parse_args()
 
-    domain_size = tuple(args.domain_size)
-
     sweep_root = resolve_sweep_root(args.sweep_dir)
+    domain_size = tuple(args.domain_size)
+    try:
+        from omegaconf import OmegaConf
+        cfg_path = sweep_root / ".hydra" / "config.yaml"
+        if cfg_path.exists():
+            cfg = OmegaConf.load(cfg_path)
+            domain_size = tuple(cfg.get("domain_size", domain_size))
+    except Exception:
+        pass
     out_dir = args.out_dir or sweep_root
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Sweep root : {sweep_root}")
