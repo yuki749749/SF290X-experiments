@@ -67,9 +67,6 @@ class DiffusionPlanner(BasePlanner):
         replan_every: int = 5,
         target_return: float = 1.0,
         device: str | torch.device = "cpu",
-        use_ddim: bool = False,
-        ddim_steps: int = 50,
-        ddim_eta: float = 0.0,
         warm_start: bool = False,
         noise_steps: int = 20,
         use_belief: bool = True,
@@ -97,9 +94,6 @@ class DiffusionPlanner(BasePlanner):
         self.replan_every = replan_every
         self.target_return = target_return
         self.device = torch.device(device)
-        self.use_ddim = use_ddim
-        self.ddim_steps = ddim_steps
-        self.ddim_eta = ddim_eta
         self.warm_start = warm_start
         self.noise_steps = noise_steps
         self.use_belief = use_belief
@@ -272,9 +266,6 @@ class DiffusionPlanner(BasePlanner):
                 b_mean,
                 b_var,
                 returns,
-                use_ddim=self.use_ddim,
-                ddim_steps=self.ddim_steps,
-                ddim_eta=self.ddim_eta,
                 x_init=x_init,
                 noise_steps=noise_steps,
                 use_belief=self.use_belief,

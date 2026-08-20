@@ -184,6 +184,7 @@ def get_planner(cfg):
             kernel_size=cfg.architecture.kernel_size,
             crop_size=cfg.architecture.get("crop_size", 40),
             belief_encoder_pooling=cfg.architecture.get("belief_encoder_pooling", False),
+            conditioning_type=cfg.architecture.get("conditioning_type", "cnn"),
         ).to(device)
 
         projector = SequentialProjector(
@@ -224,9 +225,6 @@ def get_planner(cfg):
             replan_every=cfg.planner.replan_every,
             target_return=cfg.planner.target_return,
             device=device,
-            use_ddim=cfg.planner.get("use_ddim", False),
-            ddim_steps=cfg.planner.get("ddim_steps", 50),
-            ddim_eta=cfg.planner.get("ddim_eta", 0.0),
             warm_start=cfg.planner.get("warm_start", False),
             noise_steps=cfg.planner.get("noise_steps", 20),
             use_belief=cfg.planner.get("use_belief", True),

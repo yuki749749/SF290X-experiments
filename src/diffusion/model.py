@@ -46,7 +46,8 @@ from diffusion.helpers import (
 class ResidualTemporalBlock(nn.Module):
     """
     Two Conv1dBlocks with a time (+ belief + return) embedding injected
-    additively after the first block, plus a residual projection.
+    either via FiLM (scale/shift) or additively after the first block,
+    plus a residual projection.
 
     x   : (B, inp_channels, horizon)
     t   : (B, embed_dim)
@@ -61,8 +62,10 @@ class ResidualTemporalBlock(nn.Module):
         horizon: int,
         kernel_size: int = 5,
         mish: bool = True,
+        use_film: bool = False,
     ):
         super().__init__()
+        self.use_film = use_film
         act_fn = nn.Mish() if mish else nn.SiLU()
 
         self.blocks = nn.ModuleList([
@@ -70,12 +73,20 @@ class ResidualTemporalBlock(nn.Module):
             Conv1dBlock(out_channels, out_channels, kernel_size, mish),
         ])
 
-        # project the full conditioning embedding to out_channels
-        self.time_mlp = nn.Sequential(
-            act_fn,
-            nn.Linear(embed_dim, out_channels),
-            Rearrange("batch t -> batch t 1"),
-        )
+        if use_film:
+            # project to 2 * out_channels for scale and shift
+            self.film_mlp = nn.Sequential(
+                act_fn,
+                nn.Linear(embed_dim, 2 * out_channels),
+                Rearrange("batch t -> batch t 1"),
+            )
+        else:
+            # project the full conditioning embedding to out_channels
+            self.time_mlp = nn.Sequential(
+                act_fn,
+                nn.Linear(embed_dim, out_channels),
+                Rearrange("batch t -> batch t 1"),
+            )
 
         self.residual_conv = (
             nn.Conv1d(inp_channels, out_channels, 1)
@@ -84,7 +95,12 @@ class ResidualTemporalBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        out = self.blocks[0](x) + self.time_mlp(t)
+        out = self.blocks[0](x)
+        if self.use_film:
+            gamma, beta = self.film_mlp(t).chunk(2, dim=1)
+            out = out * (gamma + 1.0) + beta
+        else:
+            out = out + self.time_mlp(t)
         out = self.blocks[1](out)
         return out + self.residual_conv(x)
 
@@ -128,8 +144,10 @@ class TemporalUnet(nn.Module):
         kernel_size: int = 5,
         crop_size: int = 40,
         belief_encoder_pooling: bool = False,
+        conditioning_type: str = "film",
     ):
         super().__init__()
+        self.conditioning_type = conditioning_type
 
         # ── channel layout ──────────────────────────────────────────────────
         dims   = [transition_dim, *[dim * m for m in dim_mults]]
@@ -148,9 +166,9 @@ class TemporalUnet(nn.Module):
             nn.Linear(dim * 4, dim),
         )
 
-        # ── belief embedding (CNN) ───────────────────────────────────────────
-        self.belief_encoder = BeliefEncoder(out_dim=dim, grid_size=crop_size, pooling=belief_encoder_pooling)
+        # ── belief embedding ───────────────────────────────────────────
         self.belief_mask_dist = Bernoulli(probs=1.0 - condition_dropout)
+        self.belief_encoder = BeliefEncoder(out_dim=dim, grid_size=crop_size, pooling=belief_encoder_pooling)
 
         # ── scalar return embedding (MLP) ────────────────────────────────────
         self.returns_mlp = nn.Sequential(
@@ -170,8 +188,8 @@ class TemporalUnet(nn.Module):
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (num_resolutions - 1)
             self.downs.append(nn.ModuleList([
-                ResidualTemporalBlock(dim_in,  dim_out, embed_dim, h, kernel_size),
-                ResidualTemporalBlock(dim_out, dim_out, embed_dim, h, kernel_size),
+                ResidualTemporalBlock(dim_in,  dim_out, embed_dim, h, kernel_size, use_film=(conditioning_type == "film")),
+                ResidualTemporalBlock(dim_out, dim_out, embed_dim, h, kernel_size, use_film=(conditioning_type == "film")),
                 Downsample1d(dim_out) if not is_last else nn.Identity(),
             ]))
             if not is_last:
@@ -179,8 +197,8 @@ class TemporalUnet(nn.Module):
 
         # ── bottleneck ───────────────────────────────────────────────────────
         mid_dim = dims[-1]
-        self.mid_block1 = ResidualTemporalBlock(mid_dim, mid_dim, embed_dim, h, kernel_size)
-        self.mid_block2 = ResidualTemporalBlock(mid_dim, mid_dim, embed_dim, h, kernel_size)
+        self.mid_block1 = ResidualTemporalBlock(mid_dim, mid_dim, embed_dim, h, kernel_size, use_film=(conditioning_type == "film"))
+        self.mid_block2 = ResidualTemporalBlock(mid_dim, mid_dim, embed_dim, h, kernel_size, use_film=(conditioning_type == "film"))
 
         # ── U-Net decoder (up) ───────────────────────────────────────────────
         self.ups = nn.ModuleList([])
@@ -188,8 +206,8 @@ class TemporalUnet(nn.Module):
             is_last = ind >= (num_resolutions - 1)
             self.ups.append(nn.ModuleList([
                 # skip-connection doubles channels on input
-                ResidualTemporalBlock(dim_out * 2, dim_in, embed_dim, h, kernel_size),
-                ResidualTemporalBlock(dim_in,      dim_in, embed_dim, h, kernel_size),
+                ResidualTemporalBlock(dim_out * 2, dim_in, embed_dim, h, kernel_size, use_film=(conditioning_type == "film")),
+                ResidualTemporalBlock(dim_in,      dim_in, embed_dim, h, kernel_size, use_film=(conditioning_type == "film")),
                 Upsample1d(dim_in) if not is_last else nn.Identity(),
             ]))
             if not is_last:
@@ -217,36 +235,36 @@ class TemporalUnet(nn.Module):
         force_return_dropout: bool = False,
     ) -> torch.Tensor:
         """
-        Returns the full conditioning vector (B, 3·dim) formed by:
+        Returns the global conditioning vector (B, 3·dim) formed by:
             [time_embed | belief_embed | return_embed]
-        During training, belief_embed and return_embed are each independently
-        zeroed with probability `condition_dropout` (CFG training).
-        During inference with force_dropout=True both are zeroed to obtain the
-        unconditional noise estimate required for CFG combination.
-        force_belief_dropout / force_return_dropout zero each signal independently,
-        used by the 3-pass composed CFG to isolate per-signal guidance directions.
         """
         time_embed   = self.time_mlp(time)                             # (B, dim)
-        belief_embed = self.belief_encoder(b_mean, b_var)              # (B, dim)
         return_embed = self.returns_mlp(returns)                       # (B, dim)
 
-        # ablation: zero out belief and return embeddings independently to test their contribution to performance
-        if not use_belief:
-            belief_embed = torch.zeros_like(belief_embed)
+        # ablation: zero out return embeddings independently to test their contribution
         if not use_return:
             return_embed = torch.zeros_like(return_embed)
 
         if use_dropout:
             B = time_embed.shape[0]
-            b_mask = self.belief_mask_dist.sample((B, 1)).to(belief_embed.device)
             r_mask = self.return_mask_dist.sample((B, 1)).to(return_embed.device)
-            belief_embed = b_mask * belief_embed
             return_embed = r_mask * return_embed
+
+        if force_dropout or force_return_dropout:
+            return_embed = torch.zeros_like(return_embed)
+
+        # CNN path
+        belief_embed = self.belief_encoder(b_mean, b_var)              # (B, dim)
+        if not use_belief:
+            belief_embed = torch.zeros_like(belief_embed)
+
+        if use_dropout:
+            B = time_embed.shape[0]
+            b_mask = self.belief_mask_dist.sample((B, 1)).to(belief_embed.device)
+            belief_embed = b_mask * belief_embed
 
         if force_dropout or force_belief_dropout:
             belief_embed = torch.zeros_like(belief_embed)
-        if force_dropout or force_return_dropout:
-            return_embed = torch.zeros_like(return_embed)
 
         return torch.cat([time_embed, belief_embed, return_embed], dim=-1)  # (B, 3·dim)
 
@@ -284,7 +302,6 @@ class TemporalUnet(nn.Module):
             x = resnet2(x, t)
             skips.append(x)
             x = downsample(x)
-        
 
         # ── bottleneck ───────────────────────────────────────────────────────
         x = self.mid_block1(x, t)

@@ -348,115 +348,6 @@ class GaussianDiffusion(nn.Module):
         return x
 
     @torch.no_grad()
-    def ddim_sample_loop(
-        self,
-        shape: tuple,
-        cond: dict,
-        b_mean: torch.Tensor,
-        b_var: torch.Tensor,
-        returns: torch.Tensor,
-        ddim_steps: int = 50,
-        eta: float = 0.0,  # 0 = fully deterministic DDIM
-        return_diffusion: bool = False,
-        x_init: torch.Tensor | None = None,
-        noise_steps: int | None = None,
-        use_belief: bool = True,
-        use_return: bool = True,
-    ):
-        """
-        DDIM reverse process (Song et al., 2021).
-
-        Uses a strided subsequence of the trained DDPM schedule so the
-        same model weights work at any step budget.
-
-        Parameters
-        ----------
-        ddim_steps : int
-            Number of denoising steps.  Sensible range 10–100.
-            Full quality is typically recovered at ~50 for trajectories.
-        eta : float
-            Controls stochasticity.  eta=0 → deterministic ODE (classic
-            DDIM).  eta=1 → variance matches DDPM.
-        """
-        device = self.betas.device
-        B = shape[0]
-
-        # ── build strided timestep subsequence ──────────────────────────────
-        # # linspace from T-1 → 0, integer indices into alphas_cumprod
-        # step_ratio = self.n_timesteps // ddim_steps
-        # # e.g. n_timesteps=200, ddim_steps=50 → [199, 195, ..., 3]
-        # timesteps = (
-        #     torch.arange(ddim_steps, device=device) * step_ratio
-        # ).long().flip(0)                                    # (ddim_steps,) descending
-
-        # # paired (t_now, t_prev) — t_prev is the *earlier* (less noisy) index
-        # timesteps_prev = torch.cat(
-        #     [timesteps[1:], torch.zeros(1, device=device, dtype=torch.long)]
-        # )                                                   # shifted by one, ends at 0
-        if x_init is not None and noise_steps is not None:
-            timesteps = torch.linspace(-1, noise_steps - 1, steps=ddim_steps + 1)
-        else:
-            timesteps = torch.linspace(-1, self.n_timesteps - 1, steps=ddim_steps + 1)
-        timesteps = torch.round(timesteps).long().flip(0)
-
-        # ── initialise ──────────────────────────────────────────
-        if x_init is not None and noise_steps is not None:
-            # warm start from x_init with noise corresponding to noise_steps
-            t_warm = torch.full((B,), noise_steps - 1, device=device, dtype=torch.long)
-            x = self.q_sample(x_init, t_warm)
-        else:
-            # cold start from pure noise
-            x = 0.5 * torch.randn(shape, device=device)
-        x = apply_conditioning(x, cond, action_dim=0)
-
-        diffusion_steps = [x] if return_diffusion else None
-
-        # for t_now, t_prev in zip(timesteps, timesteps_prev):
-        #     t_batch      = t_now.expand(B)                  # (B,)
-        #     t_prev_batch = t_prev.expand(B)                 # (B,)
-
-        for i in range(len(timesteps) - 1):
-            t_now = timesteps[i]
-            t_prev = timesteps[i + 1]
-            t_batch = torch.full((B,), t_now, device=device, dtype=torch.long)
-
-            # ── CFG noise prediction ─────────────────────────────────────────
-            eps = self._predict_eps_cfg(x, cond, t_batch, b_mean, b_var, returns, use_belief, use_return)
-
-            # ── predict x_0 from (x_t, ε) ───────────────────────────────────
-            a_t = extract(self.alphas_cumprod, t_batch, x.shape)
-            if t_prev >= 0:
-                t_prev_batch = torch.full((B,), t_prev, device=device, dtype=torch.long)
-                a_prev = extract(self.alphas_cumprod, t_prev_batch, x.shape)
-            else:
-                a_prev = torch.ones_like(a_t)  # at t_prev=-1, we want a_prev=1
-
-            x0_pred = (x - (1.0 - a_t).sqrt() * eps) / a_t.sqrt()
-            if self.clip_denoised:
-                x0_pred = x0_pred.clamp(-1.0, 1.0)
-
-            # ── DDIM update ──────────────────────────────────────────────────
-            # σ_t = eta * sqrt((1-ᾱ_{t-1})/(1-ᾱ_t)) * sqrt(1 - ᾱ_t/ᾱ_{t-1})
-            sigma = (
-                eta
-                * ((1.0 - a_prev) / (1.0 - a_t)).sqrt()
-                * (1.0 - a_t / a_prev).sqrt()
-            )
-            # direction pointing to x_t (deterministic part)
-            dir_xt = (1.0 - a_prev - sigma**2).clamp(min=0.0).sqrt() * eps
-
-            noise = sigma * torch.randn_like(x) if eta > 0.0 else 0.0
-            x = a_prev.sqrt() * x0_pred + dir_xt + noise
-
-            x = apply_conditioning(x, cond, action_dim=0)
-            if return_diffusion:
-                diffusion_steps.append(x)
-
-        if return_diffusion:
-            return x, torch.stack(diffusion_steps, dim=1)
-        return x
-
-    @torch.no_grad()
     def conditional_sample(
         self,
         cond: dict,
@@ -464,9 +355,6 @@ class GaussianDiffusion(nn.Module):
         b_var: torch.Tensor,
         returns: torch.Tensor,
         horizon: int | None = None,
-        use_ddim: bool = False,
-        ddim_steps: int = 50,
-        ddim_eta: float = 0.0,
         x_init: torch.Tensor | None = None,
         noise_steps: int | None = None,
         use_belief: bool = True,
@@ -491,22 +379,6 @@ class GaussianDiffusion(nn.Module):
         B = b_mean.shape[0]
         horizon = horizon or self.horizon
         shape = (B, horizon, self.observation_dim)
-
-        if use_ddim:
-            return self.ddim_sample_loop(
-                shape,
-                cond,
-                b_mean,
-                b_var,
-                returns,
-                ddim_steps=ddim_steps,
-                eta=ddim_eta,
-                x_init=x_init,
-                noise_steps=noise_steps,
-                use_belief=use_belief,
-                use_return=use_return,
-                **kwargs,
-            )
 
         return self.p_sample_loop(
             shape,

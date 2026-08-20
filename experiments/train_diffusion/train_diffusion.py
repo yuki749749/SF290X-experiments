@@ -170,6 +170,7 @@ def main(cfg: DictConfig) -> None:
         kernel_size=cfg.architecture.kernel_size,
         crop_size=cfg.architecture.get("crop_size", 40),
         belief_encoder_pooling=cfg.architecture.get("belief_encoder_pooling", False),
+        conditioning_type=cfg.architecture.get("conditioning_type", "cnn"),
     )
     model = GaussianDiffusion(
         backbone,

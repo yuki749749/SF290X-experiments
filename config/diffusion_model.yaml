@@ -26,3 +26,4 @@ architecture:
   kernel_size: 5
   crop_size: 24      # agent-centric crop; set to 40 to disable (use full map)
   belief_encoder_pooling: False  # true → AdaptiveAvgPool2d (grid-size agnostic); false → flatten+linear (default, backward-compatible)
+  conditioning_type: film         # Options: cnn, attention, film
