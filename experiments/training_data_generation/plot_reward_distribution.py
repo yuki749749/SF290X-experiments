@@ -27,7 +27,9 @@ import numpy as np
 
 # ── Style ──────────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from plot_style import apply_style, FIGURE_SIZES
+from utils import find_latest_run_dir
 
 apply_style(grid=False)
 
@@ -35,9 +37,16 @@ apply_style(grid=False)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from process_trajectories import extract_windows, PLANNER_DIRS
 
-DEFAULT_DATA = Path(
-    "results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl"
-)
+# Auto-detect latest processed run directory
+try:
+    DEFAULT_DATA_DIR = find_latest_run_dir(
+        Path(__file__).resolve().parent.parent.parent / "results",
+        "process_trajectories",
+        "training_data.pkl",
+    )
+    DEFAULT_DATA = DEFAULT_DATA_DIR / "training_data.pkl"
+except FileNotFoundError:
+    DEFAULT_DATA = Path("results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl")
 
 
 def plot_reward_distribution(data_path: Path, output_path: Path) -> None:

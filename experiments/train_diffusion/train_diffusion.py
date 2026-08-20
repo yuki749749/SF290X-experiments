@@ -1,16 +1,20 @@
 import contextlib
 import os
+import sys
+import shutil
+import csv
+from pathlib import Path
 import numpy as np
 
 import hydra
 import logging
-from omegaconf import DictConfig
-import csv
-from datetime import datetime
-from pathlib import Path
+from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
+
+# Add project src directory to system path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from diffusion.dataset import TrajectoryDataset
 from diffusion.model import TemporalUnet
@@ -117,9 +121,9 @@ def main(cfg: DictConfig) -> None:
     train_path = os.path.join(dataset_dir, "training_data.pkl")
     val_path = os.path.join(dataset_dir, "validation_data.pkl")
 
-    from omegaconf import OmegaConf
     max_step = float(OmegaConf.select(cfg, "planner.max_step", default=10.0))
     initial_heading = float(OmegaConf.select(cfg, "planner.initial_heading", default=np.pi / 4))
+    grid_size = int(np.round(np.sqrt(cfg.n_evaluations)))
 
     train_set = TrajectoryDataset(
         train_path,
@@ -132,6 +136,7 @@ def main(cfg: DictConfig) -> None:
         crop_size=cfg.architecture.get("crop_size", 40),
         domain_min=list(cfg.domain_min),
         domain_max=list(cfg.domain_max),
+        grid_size=grid_size,
         max_step=max_step,
         initial_heading=initial_heading,
     )
@@ -146,6 +151,7 @@ def main(cfg: DictConfig) -> None:
         crop_size=cfg.architecture.get("crop_size", 40),
         domain_min=list(cfg.domain_min),
         domain_max=list(cfg.domain_max),
+        grid_size=grid_size,
         max_step=max_step,
         initial_heading=initial_heading,
     )
@@ -227,13 +233,7 @@ def main(cfg: DictConfig) -> None:
     log.info(f"Best model saved with val loss: {best_val_loss:.4f}")
     log.info(f"Final model saved with val loss: {val_loss:.4f}")
 
-    # Copy best checkpoint to models/best_checkpoint.pt
-    import shutil
-    central_checkpoint_dir = abs_path("models")
-    os.makedirs(central_checkpoint_dir, exist_ok=True)
-    central_checkpoint_path = os.path.join(central_checkpoint_dir, "best_checkpoint.pt")
-    shutil.copy(best_checkpoint_path, central_checkpoint_path)
-    log.info(f"Copied best checkpoint to central path: {central_checkpoint_path}")
+
 
 
 if __name__ == "__main__":

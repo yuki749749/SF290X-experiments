@@ -203,6 +203,7 @@ def get_planner(cfg):
             clip_denoised=cfg.diffusion.clip_denoised,
             predict_epsilon=cfg.diffusion.predict_epsilon,
             condition_guidance_w=cfg.diffusion.condition_guidance_w,
+            n_cond_steps=cfg.diffusion.get("n_cond_steps", 2),
             belief_guidance_w=cfg.diffusion.get("belief_guidance_w", None),
             return_guidance_w=cfg.diffusion.get("return_guidance_w", None),
         ).to(device)

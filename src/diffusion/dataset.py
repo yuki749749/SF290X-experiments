@@ -111,7 +111,8 @@ class TrajectoryDataset(Dataset):
         tau = self.normalise_tau(tau)
 
         # Compute reward on-the-fly
-        rewards = traj[self.reward_key]
+        # Fall back to "rmse_history" if reward_key is not in traj
+        rewards = traj[self.reward_key] if self.reward_key in traj else traj["rmse_history"]
         if self.reward_type == "rmse":
             r_val = (rewards[t - 1] - rewards[t + self.horizon - 3]) / (rewards[t - 1] + 1e-8)
         else:  # trace_reduction
