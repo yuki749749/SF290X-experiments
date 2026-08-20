@@ -11,5 +11,5 @@ defaults:
   - planner: diffusion
   - _self_
 
-n_timesteps: 100
+n_timesteps: 400
 scenario_idx: 0

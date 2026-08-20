@@ -26,34 +26,13 @@ from __future__ import annotations
 import glob
 import json
 import os
-from pathlib import Path
 
 import hydra
 import joblib
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-
-plt.rcParams.update({
-    "text.usetex":      False,
-    "mathtext.fontset": "cm",
-    "font.family":      "serif",
-    "font.serif":       ["DejaVu Serif", "Times New Roman", "serif"],
-    "axes.labelsize":   9,
-    "axes.titlesize":   10,
-    "xtick.labelsize":  8,
-    "ytick.labelsize":  8,
-    "legend.fontsize":  9,
-    "axes.linewidth":   0.8,
-    "xtick.direction":  "in",
-    "ytick.direction":  "in",
-    "axes.grid":        False,
-    "lines.linewidth":  1.5,
-})
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-from utils import get_output_dir, abs_path, find_latest_sweep
+from utils import get_output_dir, find_latest_sweep
 
 # ── Planner-class → subdirectory name mapping ─────────────────────────────────
 # Keys are the directory names Hydra creates; values are the history-file prefix
@@ -206,6 +185,9 @@ def compute_stats(
     horizon: int,
     stride: int,
     reward_key: str,
+    reward_type: str,
+    max_step: float,
+    initial_heading: float,
     counts: dict[str, int],
 ) -> dict:
     all_tau    = np.stack([d["tau"]    for d in dataset])  # (N, H, 2)
@@ -218,6 +200,9 @@ def compute_stats(
         "horizon":               horizon,
         "stride":                stride,
         "reward_key":            reward_key,
+        "reward_type":           reward_type,
+        "max_step":              max_step,
+        "initial_heading":       initial_heading,
         "windows_per_planner":   counts,
         # trajectory positions
         "tau_mean":              all_tau.mean(axis=(0, 1)).tolist(),
@@ -240,44 +225,11 @@ def compute_stats(
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 
-def plot_reward_distribution(rewards: np.ndarray, out_dir: str, prefix: str) -> None:
-    if rewards is None or len(rewards) == 0:
-        return
-
-    fig, ax = plt.subplots(figsize=(4.5, 3.5), constrained_layout=True)
-    ax.hist(rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
-    ax.set_xlabel("Reward $r$")
-    ax.set_ylabel("Count")
-    ax.set_title(f"{prefix.capitalize()} reward distribution  ($n={len(rewards):,}$)", fontsize=10)
-
-    percentiles = [50, 75, 90, 95, 99]
-    colors      = ["#D55E00", "#E69F00", "#009E73", "#0072B2", "#CC79A7"]
-    pct_values  = np.percentile(rewards, percentiles)
-
-    for p, c, v in zip(percentiles, colors, pct_values):
-        ax.axvline(v, color=c, linestyle="--", linewidth=1.0, label=f"p{p} = {v:.3f}")
-
-    ax.axvline(rewards.mean(), color="black", linestyle=":", linewidth=1.0,
-               label=f"mean = {rewards.mean():.3f}")
-    ax.legend(frameon=False)
-
-    print(f"\n--- {prefix.capitalize()} Reward Percentiles ---")
-    print(f"  {'mean':<6}: {rewards.mean():.4f}")
-    for p, v in zip(percentiles, pct_values):
-        print(f"  p{p:<5}: {v:.4f}")
-
-    plot_path = os.path.join(out_dir, f"{prefix}_reward_distribution.pdf")
-    fig.savefig(plot_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved reward histogram -> {plot_path}")
-
-
 def save_dataset(
     dataset: list[dict],
     stats: dict,
     out_dir: str,
     prefix: str,
-    rewards: np.ndarray = None,
 ) -> None:
     os.makedirs(out_dir, exist_ok=True)
     data_path  = os.path.join(out_dir, f"{prefix}_data.pkl")
@@ -286,8 +238,6 @@ def save_dataset(
     joblib.dump(dataset, data_path)
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
-
-    plot_reward_distribution(rewards, out_dir, prefix)
 
     print(f"\nSaved {prefix} dataset -> {data_path}")
     print(f"Saved {prefix} stats   -> {stats_path}")
@@ -419,6 +369,8 @@ def main(cfg: DictConfig) -> None:
             windows = extract_windows(
                 history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
             )
+            for w in windows:
+                w["planner"] = traj["planner"]
             windowed_dataset.extend(windows)
             window_counts[traj["planner"]] += len(windows)
 
@@ -426,7 +378,16 @@ def main(cfg: DictConfig) -> None:
             print(f"No windows extracted for split '{prefix}' with current horizon/stride")
             stats = {}
         else:
-            stats = compute_stats(windowed_dataset, horizon, stride, reward_key, window_counts)
+            stats = compute_stats(
+                windowed_dataset,
+                horizon,
+                stride,
+                reward_key,
+                reward_type,
+                max_step,
+                initial_heading,
+                window_counts,
+            )
             print(f"\n--- {prefix.capitalize()} Dataset Statistics ---")
             for k, v in stats.items():
                 print(f"  {k:<35}: {v}")

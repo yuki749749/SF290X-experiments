@@ -16,6 +16,7 @@ def run_single_trajectory(scenario_idx, cfg, gp_hyperparams, output_dir, evaluat
     np.random.seed(cfg.seed + scenario_idx)
     import random
     random.seed(cfg.seed + scenario_idx)
+    torch.set_num_threads(1)
 
     planner = get_planner(cfg)
     scenario = generate_random_scenario(

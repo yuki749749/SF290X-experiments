@@ -7,9 +7,9 @@ defaults:
   - planner: bo
   - _self_
 
-train_fraction: 0.8
+train_fraction: 0.9
 val_fraction: 0.1
-test_fraction: 0.1
+test_fraction: 0.0
 
 horizon: 16
 stride: 4

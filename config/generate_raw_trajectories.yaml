@@ -10,7 +10,7 @@ defaults:
   - planner: bo
   - _self_
 
-n_timesteps: 101
+n_timesteps: 400
 scenario_idx: 0
 
 planner:

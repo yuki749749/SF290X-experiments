@@ -21,6 +21,7 @@ Output
 
 import argparse
 import sys
+import json
 from pathlib import Path
 
 import joblib
@@ -33,15 +34,50 @@ from plot_style import apply_style, FIGURE_SIZES
 
 apply_style(grid=False)
 
+# Import window extraction utility
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_trajectories import extract_windows
+
 DEFAULT_DATA = Path(
     "results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl"
 )
 
 
 def load_arrays(data_path: Path) -> tuple[np.ndarray, np.ndarray]:
+    # Resolve the companion stats file
+    prefix = data_path.name.replace("_data.pkl", "")
+    stats_path = data_path.parent / f"{prefix}_data_stats.json"
+    if not stats_path.exists():
+        raise FileNotFoundError(f"Companion stats file not found at {stats_path}")
+        
+    with open(stats_path, "r") as f:
+        stats = json.load(f)
+        
+    horizon = stats.get("horizon", 16)
+    stride = stats.get("stride", 4)
+    reward_key = stats.get("reward_key", "rmse_history")
+    reward_type = stats.get("reward_type", "rmse")
+    max_step = stats.get("max_step", 10.0)
+    initial_heading = stats.get("initial_heading", 0.7853981633974483)
+
     dataset = joblib.load(data_path)
-    trace  = np.array([d["b_var"].sum() for d in dataset], dtype=np.float32)
-    reward = np.array([float(d["r"])    for d in dataset], dtype=np.float32)
+    
+    # Extract windows from all trajectories
+    windowed_dataset = []
+    for traj in dataset:
+        history_mock = {
+            "position_history": traj["positions"],
+            "mean_history": traj["means"],
+            "variance_history": traj["variances"],
+            reward_key: traj["rmse_history"],
+        }
+        windows = extract_windows(
+            history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
+        )
+        windowed_dataset.extend(windows)
+
+    trace  = np.array([w["b_var"].sum() for w in windowed_dataset], dtype=np.float32)
+    reward = np.array([float(w["r"])    for w in windowed_dataset], dtype=np.float32)
     return trace, reward
 
 
@@ -49,8 +85,13 @@ def plot_trace_vs_reward(
     trace: np.ndarray,
     reward: np.ndarray,
     output_path: Path,
-    gridsize: int = 30,
+    gridsize: int = 45,
 ) -> None:
+    # Filter for positive rewards to prevent hexbin shape stretching
+    mask = reward >= 0
+    trace = trace[mask]
+    reward = reward[mask]
+
     corr  = np.corrcoef(trace, reward)[0, 1]
     n     = len(trace)
     scale = 10 ** int(np.floor(np.log10(trace.mean())))
@@ -73,6 +114,7 @@ def plot_trace_vs_reward(
     exp = int(np.log10(scale))
     ax.set_xlabel(rf"GP posterior trace  $\mathrm{{tr}}(\Sigma)\ /\ 10^{{{exp}}}$")
     ax.set_ylabel("Reward $r$")
+    ax.set_ylim(bottom=0.0)
 
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Saved -> {output_path}")
@@ -101,8 +143,8 @@ def main():
     parser.add_argument(
         "--gridsize",
         type=int,
-        default=30,
-        help="Hexbin grid resolution (default: 30).",
+        default=45,
+        help="Hexbin grid resolution (default: 45).",
     )
     args = parser.parse_args()
 

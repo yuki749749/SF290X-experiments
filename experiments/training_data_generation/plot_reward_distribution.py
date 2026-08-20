@@ -18,6 +18,7 @@ Output
 
 import argparse
 import sys
+import json
 from pathlib import Path
 
 import joblib
@@ -30,39 +31,95 @@ from plot_style import apply_style, FIGURE_SIZES
 
 apply_style(grid=False)
 
+# Import window extraction utility and planner mapping
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_trajectories import extract_windows, PLANNER_DIRS
+
 DEFAULT_DATA = Path(
     "results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl"
 )
 
 
 def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
+    # Resolve the companion stats file
+    prefix = data_path.name.replace("_data.pkl", "")
+    stats_path = data_path.parent / f"{prefix}_data_stats.json"
+    if not stats_path.exists():
+        raise FileNotFoundError(f"Companion stats file not found at {stats_path}")
+        
+    with open(stats_path, "r") as f:
+        stats = json.load(f)
+        
+    horizon = stats.get("horizon", 16)
+    stride = stats.get("stride", 4)
+    reward_key = stats.get("reward_key", "rmse_history")
+    reward_type = stats.get("reward_type", "rmse")
+    max_step = stats.get("max_step", 10.0)
+    initial_heading = stats.get("initial_heading", 0.7853981633974483)
+
     dataset = joblib.load(data_path)
-    rewards = np.array([float(d["r"]) for d in dataset], dtype=np.float32)
+    
+    # Extract windows from all trajectories
+    windowed_dataset = []
+    for traj in dataset:
+        history_mock = {
+            "position_history": traj["positions"],
+            "mean_history": traj["means"],
+            "variance_history": traj["variances"],
+            reward_key: traj["rmse_history"],
+        }
+        windows = extract_windows(
+            history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
+        )
+        for w in windows:
+            w["planner"] = traj.get("planner", "unknown")
+        windowed_dataset.extend(windows)
 
-    fig, ax = plt.subplots(figsize=FIGURE_SIZES["single"], constrained_layout=True)
-    ax.hist(rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
-    ax.set_xlabel("Reward $r$")
-    ax.set_ylabel("Count")
-    ax.set_title(f"Reward distribution  ($n={len(rewards):,}$)", fontsize=10)
+    # Reverse mapping for filenames (e.g. "BayesianOptimizationPlanner" -> "bo")
+    planner_keys = {tag: name for name, tag in PLANNER_DIRS.items()}
 
-    percentiles = [50, 90, 95]
-    colors      = ["#D55E00", "#009E73", "#0072B2"]
-    pct_values  = np.percentile(rewards, percentiles)
+    # Plot separately for each planner
+    planners_found = set(w["planner"] for w in windowed_dataset)
+    for planner in planners_found:
+        planner_rewards = np.array([float(w["r"]) for w in windowed_dataset if w["planner"] == planner], dtype=np.float32)
+        if len(planner_rewards) == 0:
+            continue
+            
+        planner_suffix = planner_keys.get(planner, planner.lower())
+        
+        # Adjust output path name: e.g. my_plot.pdf -> my_plot_bo.pdf
+        if output_path.suffix:
+            current_output_path = output_path.parent / f"{output_path.stem}_{planner_suffix}{output_path.suffix}"
+        else:
+            current_output_path = output_path.parent / f"{output_path.name}_{planner_suffix}.pdf"
 
-    for p, c, v in zip(percentiles, colors, pct_values):
-        ax.axvline(v, color=c, linestyle="--", linewidth=1.0, label=f"p{p} = {v:.3f}")
+        fig, ax = plt.subplots(figsize=FIGURE_SIZES["single"], constrained_layout=True)
+        ax.hist(planner_rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
+        ax.set_xlabel("Reward $r$")
+        ax.set_ylabel("Count")
+        
+        title_name = planner_suffix.replace("_", " ").upper()
+        ax.set_title(f"{title_name} Reward Distribution  ($n={len(planner_rewards):,}$)", fontsize=10)
 
-    ax.axvline(rewards.mean(), color="black", linestyle=":", linewidth=1.0,
-               label=f"mean = {rewards.mean():.3f}")
-    ax.legend(frameon=False)
+        percentiles = [50, 90, 95]
+        colors      = ["#D55E00", "#009E73", "#0072B2"]
+        pct_values  = np.percentile(planner_rewards, percentiles)
 
-    print("\n--- Reward Percentiles ---")
-    print(f"  {'mean':<6}: {rewards.mean():.4f}")
-    for p, v in zip(percentiles, pct_values):
-        print(f"  p{p:<5}: {v:.4f}")
+        for p, c, v in zip(percentiles, colors, pct_values):
+            ax.axvline(v, color=c, linestyle="--", linewidth=1.0, label=f"p{p} = {v:.3f}")
 
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
-    print(f"Saved -> {output_path}")
+        ax.axvline(planner_rewards.mean(), color="black", linestyle=":", linewidth=1.0,
+                   label=f"mean = {planner_rewards.mean():.3f}")
+        ax.legend(frameon=False)
+
+        print(f"\n--- {title_name} Reward Percentiles ---")
+        print(f"  {'mean':<6}: {planner_rewards.mean():.4f}")
+        for p, v in zip(percentiles, pct_values):
+            print(f"  p{p:<5}: {v:.4f}")
+
+        fig.savefig(current_output_path, dpi=300, bbox_inches="tight")
+        print(f"Saved -> {current_output_path}")
+        plt.close(fig)
 
 
 def main():
