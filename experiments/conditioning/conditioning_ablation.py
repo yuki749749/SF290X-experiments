@@ -17,6 +17,9 @@ from joblib import Parallel, delayed
 
 
 def run_single_ablation(scenario_idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x):
+    use_belief = cfg.planner.get("use_belief", True)
+    use_return = cfg.planner.get("use_return", True)
+    log.info(f"[{cfg.planner.type}] Starting ablation scenario {scenario_idx} (use_belief={use_belief}, use_return={use_return})...")
     # Set seeds dynamically for reproducibility
     torch.manual_seed(cfg.planner_seed + scenario_idx)
     np.random.seed(cfg.seed + scenario_idx)
@@ -29,8 +32,6 @@ def run_single_ablation(scenario_idx, cfg, gp_hyperparams, output_dir, evaluatio
         intensity_range=tuple(cfg.intensity_range)
     )
 
-    use_belief = cfg.planner.get("use_belief", True)
-    use_return = cfg.planner.get("use_return", True)
     scenario_output_dir = os.path.join(
         output_dir, 
         f"scenario_{scenario_idx}", 
@@ -85,13 +86,24 @@ def main(cfg):
         count = cfg.get("n_scenarios", 1)
         scenario_indices = list(range(start, start + count))
 
+    from threadpoolctl import threadpool_limits
+
     # Run in parallel using joblib
-    Parallel(n_jobs=cfg.n_jobs)(
-        delayed(run_single_ablation)(
-            idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x
-        )
-        for idx in scenario_indices
-    )
+    try:
+        with threadpool_limits(limits=1):
+            Parallel(n_jobs=cfg.n_jobs, backend=cfg.get("joblib_backend", "loky"), verbose=10)(
+                delayed(run_single_ablation)(
+                    idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x
+                )
+                for idx in scenario_indices
+            )
+    finally:
+        # Shutdown joblib's reusable loky executor to prevent conflicts between different Hydra sweep runs.
+        try:
+            from joblib.externals.loky import get_reusable_executor
+            get_reusable_executor().shutdown(wait=True)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

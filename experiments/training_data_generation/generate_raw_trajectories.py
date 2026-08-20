@@ -5,12 +5,16 @@ import gpytorch
 import torch
 import joblib
 import os
+import logging
+
+log = logging.getLogger(__name__)
 
 from environment.environment import generate_random_scenario
 from utils import abs_path, get_output_dir, make_grid, run_scenario, get_planner
 from joblib import Parallel, delayed
 
 def run_single_trajectory(scenario_idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x):
+    log.info(f"[{cfg.planner.type}] Starting scenario {scenario_idx}...")
     # Set seeds dynamically for reproducibility
     torch.manual_seed(cfg.seed + scenario_idx)
     np.random.seed(cfg.seed + scenario_idx)
@@ -70,13 +74,24 @@ def main(cfg):
         count = cfg.get("n_scenarios", 1)
         scenario_indices = list(range(start, start + count))
 
+    from threadpoolctl import threadpool_limits
+
     # Run in parallel using joblib
-    Parallel(n_jobs=cfg.n_jobs)(
-        delayed(run_single_trajectory)(
-            idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x
-        )
-        for idx in scenario_indices
-    )
+    try:
+        with threadpool_limits(limits=1):
+            Parallel(n_jobs=cfg.n_jobs, backend=cfg.get("joblib_backend", "loky"), verbose=10)(
+                delayed(run_single_trajectory)(
+                    idx, cfg, gp_hyperparams, output_dir, evaluation_x, visualization_x
+                )
+                for idx in scenario_indices
+            )
+    finally:
+        # Shutdown joblib's reusable loky executor to prevent conflicts between different Hydra sweep runs.
+        try:
+            from joblib.externals.loky import get_reusable_executor
+            get_reusable_executor().shutdown(wait=True)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

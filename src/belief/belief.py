@@ -31,22 +31,72 @@ class ExactGPModel(gpytorch.models.ExactGP):
 
 
 
+class SimpleMaternGP:
+    def __init__(self, mean_constant, lengthscale, outputscale, noise, train_x, train_y):
+        self.mean_constant = torch.tensor(mean_constant, dtype=torch.float32)
+        self.lengthscale = torch.tensor(lengthscale, dtype=torch.float32)
+        self.outputscale = torch.tensor(outputscale, dtype=torch.float32)
+        self.noise = torch.tensor(noise, dtype=torch.float32)
+        self.train_x = train_x.clone().detach().float()
+        self.train_y = train_y.clone().detach().float()
+
+    def update(self, new_x, new_y):
+        self.train_x = torch.cat([self.train_x, new_x.float()], dim=0)
+        self.train_y = torch.cat([self.train_y, new_y.float()], dim=0)
+
+    def _matern_kernel(self, x1, x2):
+        x1_scaled = x1 / self.lengthscale
+        x2_scaled = x2 / self.lengthscale
+        dist = torch.cdist(x1_scaled, x2_scaled, p=2.0)
+        sqrt5 = 2.23606797749979
+        val = 1.0 + sqrt5 * dist + (5.0 / 3.0) * (dist ** 2)
+        return self.outputscale * val * torch.exp(-sqrt5 * dist)
+
+    def predict(self, test_x):
+        N = self.train_x.size(0)
+        K_XX = self._matern_kernel(self.train_x, self.train_x)
+        K_XX_noisy = K_XX + self.noise * torch.eye(N, dtype=torch.float32, device=self.train_x.device)
+        K_star_X = self._matern_kernel(test_x, self.train_x)
+        y_centered = self.train_y - self.mean_constant
+
+        L = torch.linalg.cholesky(K_XX_noisy)
+        w = torch.linalg.solve_triangular(L, y_centered.unsqueeze(-1), upper=False)
+        alpha = torch.linalg.solve_triangular(L.t(), w, upper=True).squeeze(-1)
+
+        pred_mean = K_star_X.mv(alpha) + self.mean_constant
+
+        v = torch.linalg.solve_triangular(L, K_star_X.t(), upper=False)
+        pred_var = self.outputscale - torch.sum(v ** 2, dim=0)
+        pred_var = torch.clamp(pred_var, min=1e-8)
+
+        return pred_mean, pred_var
+
+
 class Belief:
     def __init__(self, model, eval_x):
-        self.model = model.eval()
+        self.model = model
         self.eval_x = eval_x
+        if hasattr(self.model, "eval"):
+            self.model.eval()
 
     def update(self, position, measurement):
         if position.dim() == 1:
             position = position.unsqueeze(0)
         if measurement.dim() == 0:
             measurement = measurement.unsqueeze(0)
-        self.model = self.model.get_fantasy_model(position, measurement)
+
+        if hasattr(self.model, "get_fantasy_model"):
+            self.model = self.model.get_fantasy_model(position, measurement)
+        else:
+            self.model.update(position, measurement)
 
     def predict(self, eval_x):
-        with torch.no_grad(), gpytorch.settings.fast_pred_var(), gpytorch.settings.fast_pred_samples(), gpytorch.settings.max_root_decomposition_size(50):
-            posterior = self.model(eval_x)
-            return posterior.mean, posterior.variance
+        if hasattr(self.model, "predict"):
+            return self.model.predict(eval_x)
+        else:
+            with torch.no_grad(), gpytorch.settings.fast_pred_var(), gpytorch.settings.fast_pred_samples(), gpytorch.settings.max_root_decomposition_size(50):
+                posterior = self.model(eval_x)
+                return posterior.mean, posterior.variance
     
     def predict_eval_x(self):
         return self.predict(self.eval_x)

@@ -124,11 +124,6 @@ class TrajectoryDataset(Dataset):
         b_mean = torch.from_numpy(traj["means"][t - 1]).float()
         b_var  = torch.from_numpy(traj["variances"][t - 1]).float()
 
-        # Apply normalization if stats were loaded successfully
-        if self.normalize_beliefs:
-            b_mean = (b_mean - self.b_mean_mean) / (self.b_mean_std + 1e-8)
-            b_var  = (b_var - self.b_var_mean) / (self.b_var_std + 1e-8)
-
         # Crop if necessary (local belief crop around starting position)
         if self.crop_size < self.grid_size:
             agent_pos = self.denormalise_tau(tau[0])  # (2,) physical coords
@@ -137,5 +132,10 @@ class TrajectoryDataset(Dataset):
                 self.domain_min, self.domain_max,
                 self.crop_size, self.grid_size,
             )
+
+        # Apply normalization if stats were loaded successfully
+        if self.normalize_beliefs:
+            b_mean = (b_mean - self.b_mean_mean) / (self.b_mean_std + 1e-8)
+            b_var  = (b_var - self.b_var_mean) / (self.b_var_std + 1e-8)
 
         return {"tau": tau, "r": r, "b_mean": b_mean, "b_var": b_var}

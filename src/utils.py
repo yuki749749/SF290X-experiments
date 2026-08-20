@@ -21,26 +21,21 @@ def make_grid(domain_min, domain_max, n_evaluations):
     return torch.stack([g1.flatten(), g2.flatten()], dim=-1)
 
 def initialize_belief(position, measurement, gp_hyperparams, sigma, eval_x, diffusion_coefficient=2.0):
-    """Initialize GPyTorch model and Belief state."""
+    """Initialize SimpleMaternGP model and Belief state."""
     import torch
-    import gpytorch
-    from belief.belief import Belief, ExactGPModel
+    from belief.belief import Belief, SimpleMaternGP
     
     train_x = torch.tensor(position, dtype=torch.float32).unsqueeze(0)  # (1, 2)
     train_y = torch.tensor([measurement], dtype=torch.float32)  # (1,)
-    likelihood = gpytorch.likelihoods.GaussianLikelihood()
-    prior = gpytorch.priors.GammaPrior(6.0, 6.0 / diffusion_coefficient)
-    model = ExactGPModel(train_x, train_y, likelihood, lengthscale_prior=prior)
-    with torch.no_grad():
-        model.mean_module.constant = torch.tensor(gp_hyperparams["mean_constant"])
-        model.covar_module.base_kernel.lengthscale = torch.tensor(
-            [gp_hyperparams["lengthscale_0"], gp_hyperparams["lengthscale_1"]]
-        )
-        model.covar_module.outputscale = torch.tensor(gp_hyperparams["outputscale"])
-        model.likelihood.noise = torch.tensor(sigma**2)
-    for param in model.parameters():
-        param.requires_grad_(False)
-
+    
+    model = SimpleMaternGP(
+        mean_constant=gp_hyperparams["mean_constant"],
+        lengthscale=[gp_hyperparams["lengthscale_0"], gp_hyperparams["lengthscale_1"]],
+        outputscale=gp_hyperparams["outputscale"],
+        noise=sigma**2,
+        train_x=train_x,
+        train_y=train_y,
+    )
     return Belief(model, eval_x=eval_x)
 
 def run_scenario(
@@ -217,6 +212,21 @@ def get_planner(cfg):
         log.info(f"Loaded {weights_key} weights from checkpoint")
         diffusion_model.eval()
 
+        # Check if normalization stats exist in the checkpoint
+        stats = checkpoint.get("stats", None)
+        # If not, try to load from the same folder as the checkpoint
+        if stats is None:
+            checkpoint_dir = os.path.dirname(abs_path(cfg.planner.checkpoint_path))
+            stats_path = os.path.join(checkpoint_dir, "training_data_stats.json")
+            if os.path.exists(stats_path):
+                try:
+                    import json
+                    with open(stats_path, "r") as f:
+                        stats = json.load(f)
+                    log.info(f"Loaded normalization stats from: {stats_path}")
+                except Exception as exc:
+                    log.warning(f"Error loading stats from {stats_path}: {exc}")
+
         return DiffusionPlanner(
             diffusion=diffusion_model,
             domain_size=tuple(cfg.domain_size),
@@ -233,6 +243,7 @@ def get_planner(cfg):
             domain_min=list(cfg.domain_min),
             domain_max=list(cfg.domain_max),
             max_step=cfg.planner.max_step,
+            stats=stats,
         )
     else:
         raise ValueError(f"Unknown planner type: {cfg.planner}")

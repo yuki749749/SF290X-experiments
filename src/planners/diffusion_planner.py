@@ -76,6 +76,7 @@ class DiffusionPlanner(BasePlanner):
         domain_max: Optional[Sequence[float]] = None,
         grid_size: int = 40,
         max_step: float = 1.0,
+        stats: Optional[dict] = None,
     ):
         # BasePlanner needs domain_size but DiffusionPlanner doesn't use its
         # candidate-generation or boundary helpers, so we pass neutral values.
@@ -106,6 +107,16 @@ class DiffusionPlanner(BasePlanner):
         self.domain_max = torch.tensor(_dmax, dtype=torch.float32)
 
         self.diffusion.eval()
+
+        self.stats = stats
+        if stats is not None:
+            self.b_mean_mean = torch.tensor(stats.get("b_mean_global_mean", 0.0), dtype=torch.float32, device=self.device)
+            self.b_mean_std  = torch.tensor(stats.get("b_mean_global_std", 1.0), dtype=torch.float32, device=self.device)
+            self.b_var_mean  = torch.tensor(stats.get("b_var_global_mean", 0.0), dtype=torch.float32, device=self.device)
+            self.b_var_std   = torch.tensor(stats.get("b_var_global_std", 1.0), dtype=torch.float32, device=self.device)
+            self.normalize_beliefs = True
+        else:
+            self.normalize_beliefs = False
 
         # internal state
         self._waypoint_buffer: list[tuple[float, float]] = []
@@ -247,8 +258,13 @@ class DiffusionPlanner(BasePlanner):
             cond = {0: current_position_norm.unsqueeze(0).to(self.device)}  # (1, 2)
             buffer_start = 1  # skip only the pinned start
 
-        b_mean = b_mean.unsqueeze(0).to(self.device)  # (1, 1600)
-        b_var = b_var.unsqueeze(0).to(self.device)  # (1, 1600)
+        b_mean = b_mean.unsqueeze(0).to(self.device)  # (1, N)
+        b_var = b_var.unsqueeze(0).to(self.device)  # (1, N)
+
+        # Apply normalization if stats were loaded
+        if self.normalize_beliefs:
+            b_mean = (b_mean - self.b_mean_mean) / (self.b_mean_std + 1e-8)
+            b_var  = (b_var - self.b_var_mean) / (self.b_var_std + 1e-8)
         returns = torch.tensor(
             [[self.target_return]], dtype=torch.float32, device=self.device
         )  # (1, 1)

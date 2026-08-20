@@ -286,9 +286,12 @@ class WeightedLoss(nn.Module):
         """pred, targ : (B, horizon, transition_dim)"""
         loss = self._loss(pred, targ)
         weighted_loss = (loss * self.weights).mean()
-        a0_loss = (
-            loss[:, 0, : self.action_dim] / self.weights[0, : self.action_dim]
-        ).mean()
+        if self.action_dim > 0:
+            a0_loss = (
+                loss[:, 0, : self.action_dim] / self.weights[0, : self.action_dim]
+            ).mean()
+        else:
+            a0_loss = torch.tensor(0.0, device=pred.device)
         return weighted_loss, {"a0_loss": a0_loss}
 
 

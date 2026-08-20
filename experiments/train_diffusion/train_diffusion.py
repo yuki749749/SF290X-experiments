@@ -93,7 +93,7 @@ def run_epoch(
     return running / len(loader)
 
 
-def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val_loss, ema: EMAManager = None):
+def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val_loss, ema: EMAManager = None, stats: dict = None):
     state = {
         "epoch": epoch,
         "model": model.state_dict(),
@@ -103,6 +103,8 @@ def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val_loss, ema
     }
     if ema is not None:
         state["ema_shadow"] = ema.shadow_state
+    if stats is not None:
+        state["stats"] = stats
     torch.save(state, path)
 
 
@@ -226,11 +228,11 @@ def main(cfg: DictConfig) -> None:
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             save_checkpoint(
-                best_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema
+                best_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema, getattr(train_set, "stats", None)
             )
 
     final_checkpoint_path = os.path.join(output_dir, "final_checkpoint.pt")
-    save_checkpoint(final_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema)
+    save_checkpoint(final_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema, getattr(train_set, "stats", None))
     log.info(f"Best model saved with val loss: {best_val_loss:.4f}")
     log.info(f"Final model saved with val loss: {val_loss:.4f}")
 
