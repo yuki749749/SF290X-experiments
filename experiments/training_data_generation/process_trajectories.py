@@ -120,8 +120,9 @@ def extract_windows(
     windows: list[dict] = []
 
     if reward_type == "rmse":
+        rmse_0 = np.float32(rewards[1])
         def _reward(t: int) -> np.float32:
-            return (np.float32(rewards[t]) - np.float32(rewards[t + horizon - 2])) / (np.float32(rewards[t]) + 1e-8)
+            return (np.float32(rewards[t]) - np.float32(rewards[t + horizon - 2])) / (rmse_0 + 1e-8)
     else:  # trace_reduction
         trace_0 = np.float32(np.sum(variances[1]))
         def _reward(t: int) -> np.float32:

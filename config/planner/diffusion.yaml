@@ -4,13 +4,13 @@ defaults:
   - _self_
 
 type: diffusion
-checkpoint_path: models/best_checkpoint.pt
+checkpoint_path: results/train_diffusion/run/2026-08-21_12-16-13/final_checkpoint.pt
 replan_every: 4
-target_return: 1.0
+target_return: 1.2
 device: null                # null → auto (cuda if available, else cpu)
 
 warm_start: True
 noise_steps: 10
 use_belief: True
 use_return: True
-use_egocentric: False
+use_egocentric: True

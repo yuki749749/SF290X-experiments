@@ -101,7 +101,8 @@ def plot_1x5(
     out_path    : where to save the PDF; auto-derived if None
     suptitle    : figure-level title
     """
-    assert len(pkl_paths) == 4, "Exactly 4 pkl paths required for 1×5 layout."
+    num_configs = len(pkl_paths)
+    assert num_configs >= 1, "At least 1 pkl path required for comparison layout."
 
     try:
         from omegaconf import OmegaConf
@@ -131,11 +132,12 @@ def plot_1x5(
     v_max = float(np.asarray(ground_truth).max())
 
     # ------------------------------------------------------------------
-    # Figure layout: 1 row × 5 cols
+    # Figure layout: 1 row × (num_configs + 1) cols
     # ------------------------------------------------------------------
+    fig_width = (num_configs + 1) * 2.8
     fig, axes = plt.subplots(
-        1, 5,
-        figsize=FIGURE_SIZES["wide"],
+        1, num_configs + 1,
+        figsize=(fig_width, 3.2),
         constrained_layout=True,
     )
 
@@ -217,7 +219,7 @@ def plot_1x5(
     # ------------------------------------------------------------------
     if out_path is None:
         # Save alongside the first pkl's parent directory
-        out_path = pkl_paths[0].parent.parent / "configurations_1x5.pdf"
+        out_path = pkl_paths[0].parent.parent / f"configurations_1x{num_configs + 1}.pdf"
 
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     print(f"  Saved -> {out_path}")
@@ -254,9 +256,9 @@ def main():
     parser.add_argument(
         "--pkl",
         type=Path,
-        nargs=4,
+        nargs="+",
         metavar="PKL",
-        help="Exactly 4 history.pkl paths, one per configuration.",
+        help="One or more history.pkl paths, one per configuration.",
     )
     # Option B: auto-discover from sweep dir
     parser.add_argument(
@@ -322,15 +324,10 @@ def main():
     print(f"Found {len(groups)} scenario(s). Domain: {domain_size}, pad: {args.domain_pad}")
 
     for scenario, pkls in sorted(groups.items()):
-        if len(pkls) != 4:
-            print(
-                f"  SKIP {scenario}: expected 4 configs, found {len(pkls)} "
-                f"({[p.parent.name for p in pkls]})",
-                file=sys.stderr,
-            )
+        if not pkls:
             continue
 
-        out = pkls[0].parent.parent / f"{scenario}_configurations_1x5.pdf"
+        out = pkls[0].parent.parent / f"{scenario}_configurations_1x{len(pkls) + 1}.pdf"
         print(f"  Processing {scenario}: {[p.parent.name for p in pkls]}")
         try:
             plot_1x5(

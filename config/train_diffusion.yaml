@@ -16,6 +16,6 @@ training:
 horizon: 16
 stride: 4
 reward_key: rmse_history
-reward_type: trace_reduction
+reward_type: rmse
 
 dataset_dir: ???

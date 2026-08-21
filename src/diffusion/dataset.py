@@ -143,7 +143,8 @@ class TrajectoryDataset(Dataset):
         # Compute reward on-the-fly
         if self.reward_type == "rmse":
             rewards = traj[self.reward_key] if self.reward_key in traj else traj["rmse_history"]
-            r_val = (rewards[t - 1] - rewards[t + self.horizon - 3]) / (rewards[t - 1] + 1e-8)
+            rmse_0 = rewards[0]
+            r_val = (rewards[t - 1] - rewards[t + self.horizon - 3]) / (rmse_0 + 1e-8)
         else:  # trace_reduction
             trace_0 = traj["variances"][0].sum()
             trace_start = traj["variances"][t - 1].sum()
