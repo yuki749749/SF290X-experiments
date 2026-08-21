@@ -52,6 +52,12 @@ def run_single_evaluation(scenario_idx, cfg, gp_hyperparams, output_dir, evaluat
 
 @hydra.main(config_path="../../config", config_name="evaluation", version_base="1.2")
 def main(cfg):
+    # Resolve relative paths in config to absolute paths so parallel joblib workers can find them
+    from omegaconf import OmegaConf
+    OmegaConf.set_struct(cfg, False)
+    if hasattr(cfg, "planner") and "checkpoint_path" in cfg.planner and cfg.planner.checkpoint_path:
+        cfg.planner.checkpoint_path = abs_path(cfg.planner.checkpoint_path)
+
     output_dir = get_output_dir()
     gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
 

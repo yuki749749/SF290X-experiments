@@ -1,9 +1,11 @@
 import os
 import json
 import joblib
+import math
 import numpy as np
 from typing import Dict, Optional, Sequence
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 from diffusion.helpers import crop_belief_map
@@ -40,6 +42,7 @@ class TrajectoryDataset(Dataset):
         grid_size: int = 40,
         max_step: float = 10.0,
         initial_heading: float = np.pi / 4,
+        use_egocentric: bool = False,
     ):
         self.raw_trajectories = joblib.load(path)
         self.horizon = horizon
@@ -48,6 +51,7 @@ class TrajectoryDataset(Dataset):
         self.reward_type = reward_type
         self.max_step = max_step
         self.initial_heading = initial_heading
+        self.use_egocentric = use_egocentric
 
         self.domain_size = torch.tensor(domain_size, dtype=torch.float32)
         self.domain_pad = torch.tensor(domain_pad, dtype=torch.float32)
@@ -75,12 +79,17 @@ class TrajectoryDataset(Dataset):
                 self.b_mean_std  = torch.tensor(self.stats.get("b_mean_global_std", 1.0), dtype=torch.float32)
                 self.b_var_mean  = torch.tensor(self.stats.get("b_var_global_mean", 0.0), dtype=torch.float32)
                 self.b_var_std   = torch.tensor(self.stats.get("b_var_global_std", 1.0), dtype=torch.float32)
+                self.r_min       = torch.tensor(self.stats.get("r_min", 0.0), dtype=torch.float32)
+                self.r_max       = torch.tensor(self.stats.get("r_max", 1.0), dtype=torch.float32)
                 self.normalize_beliefs = True
+                self.normalize_reward = True
             except Exception as exc:
                 print(f"[WARN] Error loading training stats from {training_stats_path}: {exc}")
                 self.normalize_beliefs = False
+                self.normalize_reward = False
         else:
             self.normalize_beliefs = False
+            self.normalize_reward = False
 
     # ── normalisation ────────────────────────────────────────────────────────
 
@@ -107,31 +116,82 @@ class TrajectoryDataset(Dataset):
         
         # Slice tau for the window [t-1 : t+H-1]
         tau_np = np.asarray(positions[t - 1 : t + self.horizon - 1], dtype=np.float32)
-        tau = torch.from_numpy(tau_np).float()
-        tau = self.normalise_tau(tau)
+        tau_raw = torch.from_numpy(tau_np).float()
+
+        # Get current position and heading
+        p_curr = positions[t]
+        p_prev = positions[t - 1]
+        dx = p_curr[0] - p_prev[0]
+        dy = p_curr[1] - p_prev[1]
+        heading = math.atan2(dy, dx)
+
+        if self.use_egocentric:
+            p_curr_tensor = torch.tensor(p_curr, dtype=torch.float32)
+            tau_trans = tau_raw - p_curr_tensor
+            cos_h = math.cos(heading)
+            sin_h = math.sin(heading)
+            rot_mat = torch.tensor([
+                [cos_h, sin_h],
+                [-sin_h, cos_h]
+            ], dtype=torch.float32)
+            tau_rot = tau_trans @ rot_mat.t()
+            scale_factor = 2.0 / (self.domain_size + 2 * self.domain_pad)
+            tau = tau_rot * scale_factor
+        else:
+            tau = self.normalise_tau(tau_raw)
 
         # Compute reward on-the-fly
-        # Fall back to "rmse_history" if reward_key is not in traj
-        rewards = traj[self.reward_key] if self.reward_key in traj else traj["rmse_history"]
         if self.reward_type == "rmse":
+            rewards = traj[self.reward_key] if self.reward_key in traj else traj["rmse_history"]
             r_val = (rewards[t - 1] - rewards[t + self.horizon - 3]) / (rewards[t - 1] + 1e-8)
         else:  # trace_reduction
-            r_val = (rewards[t + self.horizon - 3] - rewards[t - 1]) / (1.0 - rewards[t - 1] + 1e-8)
+            trace_0 = traj["variances"][0].sum()
+            trace_start = traj["variances"][t - 1].sum()
+            trace_end = traj["variances"][t + self.horizon - 3].sum()
+            r_val = (trace_start - trace_end) / (trace_0 + 1e-8)
             
         r = torch.tensor([r_val], dtype=torch.float32)
+        if self.normalize_reward:
+            r = torch.clamp((r - self.r_min) / (self.r_max - self.r_min + 1e-8), 0.0, 1.0)
 
         # Get belief states at step t (index t-1 in raw lists)
         b_mean = torch.from_numpy(traj["means"][t - 1]).float()
         b_var  = torch.from_numpy(traj["variances"][t - 1]).float()
 
         # Crop if necessary (local belief crop around starting position)
-        if self.crop_size < self.grid_size:
-            agent_pos = self.denormalise_tau(tau[0])  # (2,) physical coords
+        if self.crop_size < self.grid_size or self.use_egocentric:
+            if self.use_egocentric:
+                agent_pos = torch.tensor(p_curr, dtype=torch.float32)
+            else:
+                agent_pos = self.denormalise_tau(tau[0])  # (2,) physical coords
             b_mean, b_var = crop_belief_map(
                 b_mean, b_var, agent_pos,
                 self.domain_min, self.domain_max,
                 self.crop_size, self.grid_size,
             )
+
+            # Rotate crop for egocentric frame
+            if self.use_egocentric:
+                grid_img = torch.stack([
+                    b_mean.view(self.crop_size, self.crop_size),
+                    b_var.view(self.crop_size, self.crop_size)
+                ], dim=0) # (2, H, W)
+                
+                cos_a = math.cos(heading)
+                sin_a = math.sin(heading)
+                
+                # Rotation matrix (we rotate the sampling coordinates by +heading)
+                rot_mat = torch.tensor([[
+                    [cos_a, -sin_a, 0.0],
+                    [sin_a,  cos_a, 0.0]
+                ]], dtype=torch.float32)
+                
+                x_batch = grid_img.unsqueeze(0)
+                grid = F.affine_grid(rot_mat, x_batch.size(), align_corners=True)
+                rotated = F.grid_sample(x_batch, grid, align_corners=True, mode="bilinear", padding_mode="zeros")
+                rotated = rotated.squeeze(0)
+                b_mean = rotated[0].flatten()
+                b_var  = rotated[1].flatten()
 
         # Apply normalization if stats were loaded successfully
         if self.normalize_beliefs:

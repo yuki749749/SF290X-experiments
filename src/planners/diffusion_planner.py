@@ -30,8 +30,10 @@ or simply 1.0 (normalised maximum) to bias the model toward high-reward plans.
 
 from typing import Optional, Sequence
 
+import math
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from planners.planners import BasePlanner
 from diffusion.diffusion import GaussianDiffusion
@@ -77,11 +79,11 @@ class DiffusionPlanner(BasePlanner):
         grid_size: int = 40,
         max_step: float = 1.0,
         stats: Optional[dict] = None,
+        use_egocentric: bool = False,
     ):
-        # BasePlanner needs domain_size but DiffusionPlanner doesn't use its
-        # candidate-generation or boundary helpers, so we pass neutral values.
         super().__init__(
             domain_size=domain_size,
+            domain_pad=domain_pad,
             max_step=max_step,
             min_step=max_step,
             max_turn=np.pi / 4,  # not used by this planner
@@ -105,6 +107,7 @@ class DiffusionPlanner(BasePlanner):
         _dmax = list(domain_max) if domain_max is not None else list(domain_size[:2])
         self.domain_min = torch.tensor(_dmin, dtype=torch.float32)
         self.domain_max = torch.tensor(_dmax, dtype=torch.float32)
+        self.use_egocentric = use_egocentric
 
         self.diffusion.eval()
 
@@ -190,25 +193,55 @@ class DiffusionPlanner(BasePlanner):
         seed[0, 1] = cond[1][0]  # current_position
 
         # unexecuted suffix: everything after the steps already consumed
-        # _steps_since_replan counts steps taken since the last replan, so
-        # indices 0 … _steps_since_replan-1 of _last_tau_norm are exhausted
-        suffix     = self._last_tau_norm[0, self._steps_since_replan:]  # (S, 2)
+        if self.use_egocentric:
+            # Reconstruct previous global trajectory from previous body frame
+            cos_prev = math.cos(self._last_heading)
+            sin_prev = math.sin(self._last_heading)
+            R_prev = torch.tensor([
+                [cos_prev, -sin_prev],
+                [sin_prev,  cos_prev]
+            ], dtype=torch.float32, device=self.device)
+            
+            scale_factor = 2.0 / (self.domain_size_t + 2 * self.domain_pad_t)
+            scale_factor = scale_factor.to(self.device)
+            last_tau_scaled = self._last_tau_norm[0] / scale_factor
+            p_prev_tensor = torch.tensor(self._last_pos_for_warm_start, dtype=torch.float32, device=self.device)
+            tau_prev_global = last_tau_scaled @ R_prev.t() + p_prev_tensor
+            
+            # Transform to the new body frame centered at current_position and rotated by heading
+            p_curr_tensor = torch.tensor(self._current_pos_for_warm_start, dtype=torch.float32, device=self.device)
+            tau_new_trans = tau_prev_global - p_curr_tensor
+            
+            cos_curr = math.cos(self._current_heading)
+            sin_curr = math.sin(self._current_heading)
+            R_curr_T = torch.tensor([
+                [cos_curr, sin_curr],
+                [-sin_curr, cos_curr]
+            ], dtype=torch.float32, device=self.device)
+            
+            tau_new_body = tau_new_trans @ R_curr_T.t()
+            last_tau_norm_shifted = (tau_new_body * scale_factor).unsqueeze(0)
+            
+            suffix = last_tau_norm_shifted[0, self._steps_since_replan:]
+        else:
+            suffix = self._last_tau_norm[0, self._steps_since_replan:]
+            
         suffix_len = suffix.shape[0]
         copy_len   = min(suffix_len, H - 2)
         if copy_len > 0:
             seed[0, 2 : 2 + copy_len] = suffix[:copy_len]
 
-        # constant extrapolation: repeat the last waypoint for the remaining horizon
-        # tail_start = 2 + copy_len
-        # if tail_start < H:
-        #     seed[0, tail_start:] = seed[0, tail_start - 1] 
-
         # linear extrapolation: extend the last displacement vector for the remaining horizon
         tail_start = 2 + copy_len
         if tail_start < H:
-            last_disp = (
-                self._last_tau_norm[0, -1] - self._last_tau_norm[0, -2]
-            )  # (2,)
+            if self.use_egocentric:
+                last_disp = (
+                    last_tau_norm_shifted[0, -1] - last_tau_norm_shifted[0, -2]
+                )
+            else:
+                last_disp = (
+                    self._last_tau_norm[0, -1] - self._last_tau_norm[0, -2]
+                )
             last_pt = seed[0, tail_start - 1]
             for j in range(H - tail_start):
                 seed[0, tail_start + j] = (
@@ -216,7 +249,6 @@ class DiffusionPlanner(BasePlanner):
                 ).clamp(-1.0, 1.0)
         
         return seed
-        
 
 
     # ── replanning ───────────────────────────────────────────────────────────
@@ -232,32 +264,53 @@ class DiffusionPlanner(BasePlanner):
         """
         b_mean, b_var = belief.predict_eval_x()  # (grid_size²,) tensors on CPU
 
-        if self.crop_size < self.grid_size:
-            agent_pos = torch.tensor(current_position, dtype=torch.float32)
+        # Compute heading
+        p_curr = np.array(current_position, dtype=np.float32)
+        if self._last_position is not None:
+            p_prev = self._last_position
+            dx = p_curr[0] - p_prev[0]
+            dy = p_curr[1] - p_prev[1]
+            heading = math.atan2(dy, dx) if (dx != 0.0 or dy != 0.0) else 0.0
+        else:
+            heading = 0.0
+
+        # Save current state for warm start reconstruction
+        self._current_pos_for_warm_start = p_curr
+        self._current_heading = heading
+
+        if self.crop_size < self.grid_size or self.use_egocentric:
+            if self.use_egocentric:
+                agent_pos = torch.tensor(current_position, dtype=torch.float32)
+            else:
+                agent_pos = torch.tensor(current_position, dtype=torch.float32)
             b_mean, b_var = crop_belief_map(
                 b_mean, b_var, agent_pos,
                 self.domain_min, self.domain_max,
                 self.crop_size, self.grid_size,
             )
 
+            # Rotate crop if egocentric
+            if self.use_egocentric:
+                grid_img = torch.stack([
+                    b_mean.view(self.crop_size, self.crop_size),
+                    b_var.view(self.crop_size, self.crop_size)
+                ], dim=0) # (2, H, W)
+                
+                cos_a = math.cos(heading)
+                sin_a = math.sin(heading)
+                rot_mat = torch.tensor([[
+                    [cos_a, -sin_a, 0.0],
+                    [sin_a,  cos_a, 0.0]
+                ]], dtype=torch.float32)
+                
+                x_batch = grid_img.unsqueeze(0)
+                grid = F.affine_grid(rot_mat, x_batch.size(), align_corners=True)
+                rotated = F.grid_sample(x_batch, grid, align_corners=True, mode="bilinear", padding_mode="zeros")
+                rotated = rotated.squeeze(0)
+                b_mean = rotated[0].flatten()
+                b_var  = rotated[1].flatten()
+
         # batch size 1
-        current_position_norm = self._normalise(
-            np.array(current_position, dtype=np.float32)
-        )  # (2,)
-
-        if self._last_position is not None:
-            # ── two-point conditioning ──────────────────────────────────────
-            last_position_norm = self._normalise(self._last_position)  # (2,)
-            cond = {
-                0: last_position_norm.unsqueeze(0).to(self.device),  # (1, 2)
-                1: current_position_norm.unsqueeze(0).to(self.device),  # (1, 2)
-            }
-            buffer_start = 2  # skip the two pinned positions
-        else:
-            # ── first call: single-point conditioning (original behaviour) ──
-            cond = {0: current_position_norm.unsqueeze(0).to(self.device)}  # (1, 2)
-            buffer_start = 1  # skip only the pinned start
-
         b_mean = b_mean.unsqueeze(0).to(self.device)  # (1, N)
         b_var = b_var.unsqueeze(0).to(self.device)  # (1, N)
 
@@ -265,6 +318,34 @@ class DiffusionPlanner(BasePlanner):
         if self.normalize_beliefs:
             b_mean = (b_mean - self.b_mean_mean) / (self.b_mean_std + 1e-8)
             b_var  = (b_var - self.b_var_mean) / (self.b_var_std + 1e-8)
+
+        # Set conditioning constraints
+        if self.use_egocentric:
+            cond = {
+                1: torch.tensor([[0.0, 0.0]], dtype=torch.float32, device=self.device)
+            }
+            if self._last_position is not None:
+                scale_factor = 2.0 / (self.domain_size_t + 2 * self.domain_pad_t)
+                v_norm_x = -self.max_step * scale_factor[0]
+                cond[0] = torch.tensor([[v_norm_x.item(), 0.0]], dtype=torch.float32, device=self.device)
+                buffer_start = 2
+            else:
+                buffer_start = 1
+        else:
+            current_position_norm = self._normalise(
+                np.array(current_position, dtype=np.float32)
+            )  # (2,)
+            if self._last_position is not None:
+                last_position_norm = self._normalise(self._last_position)  # (2,)
+                cond = {
+                    0: last_position_norm.unsqueeze(0).to(self.device),  # (1, 2)
+                    1: current_position_norm.unsqueeze(0).to(self.device),  # (1, 2)
+                }
+                buffer_start = 2
+            else:
+                cond = {0: current_position_norm.unsqueeze(0).to(self.device)}  # (1, 2)
+                buffer_start = 1
+
         returns = torch.tensor(
             [[self.target_return]], dtype=torch.float32, device=self.device
         )  # (1, 1)
@@ -291,7 +372,19 @@ class DiffusionPlanner(BasePlanner):
         # store full normalised trajectory for the next warm start 
         self._last_tau_norm = tau_norm 
 
-        tau = self._denormalise(tau_norm[0])  # (horizon, 2)
+        if self.use_egocentric:
+            cos_h = math.cos(heading)
+            sin_h = math.sin(heading)
+            rot_mat = torch.tensor([
+                [cos_h, -sin_h],
+                [sin_h, cos_h]
+            ], dtype=torch.float32, device=self.device)
+            scale_factor = 2.0 / (self.domain_size_t + 2 * self.domain_pad_t)
+            scale_factor = scale_factor.to(self.device)
+            tau_body_phys = tau_norm[0] / scale_factor
+            tau = (tau_body_phys @ rot_mat.t() + torch.tensor(current_position, dtype=torch.float32, device=self.device)).cpu().numpy()
+        else:
+            tau = self._denormalise(tau_norm[0])  # (horizon, 2)
 
         # skip the first 1 or 2 positions which are pinned by conditioning, and buffer the rest
         self._waypoint_buffer = [
@@ -299,6 +392,10 @@ class DiffusionPlanner(BasePlanner):
             for i in range(buffer_start, self.horizon)
         ]
         self._steps_since_replan = 0
+
+        # Save for next warm start
+        self._last_pos_for_warm_start = p_curr
+        self._last_heading = heading
 
     # ── BasePlanner interface ────────────────────────────────────────────────
 
@@ -325,6 +422,8 @@ class DiffusionPlanner(BasePlanner):
         self._steps_since_replan = 0
         self._last_tau_norm = None
         self._is_steering_back = False
+        self._last_pos_for_warm_start = None
+        self._last_heading = None
  
         if initial_position is not None and initial_heading is not None:
             # Synthesise a ghost waypoint one step behind the start so that

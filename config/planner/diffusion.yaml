@@ -13,3 +13,4 @@ warm_start: True
 noise_steps: 20
 use_belief: True
 use_return: True
+use_egocentric: False

@@ -123,8 +123,11 @@ def extract_windows(
         def _reward(t: int) -> np.float32:
             return (np.float32(rewards[t]) - np.float32(rewards[t + horizon - 2])) / (np.float32(rewards[t]) + 1e-8)
     else:  # trace_reduction
+        trace_0 = np.float32(np.sum(variances[1]))
         def _reward(t: int) -> np.float32:
-            return (np.float32(rewards[t + horizon - 2]) - np.float32(rewards[t])) / (1.0 - np.float32(rewards[t]) + 1e-8)
+            trace_start = np.float32(np.sum(variances[t]))
+            trace_end   = np.float32(np.sum(variances[t + horizon - 2]))
+            return (trace_start - trace_end) / (trace_0 + 1e-8)
 
     for t in range(1, T - horizon + 2, stride):
         tau    = np.asarray(positions[t - 1 : t + horizon - 1], dtype=np.float32)  # (H, 2)

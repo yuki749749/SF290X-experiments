@@ -216,20 +216,16 @@ class SequentialProjector:
         """Clip to normalised domain [-1, 1]^2."""
         return torch.clamp(p, -1.0, 1.0)
 
-    def project(self, tau: torch.Tensor) -> torch.Tensor:
+    def project(self, tau: torch.Tensor, cond: dict | None = None) -> torch.Tensor:
         """
         Project a batch of partial trajectories onto the feasible set C.
-
-        tau[:, 0] is always fixed. All subsequent waypoints are projected via
-        _project_step: for index 1, p_prev == p_curr so the incoming heading
-        is degenerate and falls back to theta_raw, giving a pure speed
-        projection. For indices 2..H-1, full speed + turn constraints apply.
-        Proposed headings are always taken from the original diffusion output
-        (Option A).
 
         Parameters
         ----------
         tau : (B, H, 2)
+        cond : dict or None
+            Conditioning dictionary. If a step index is in cond.keys(),
+            it is considered pinned (inpainted) and will not be modified.
 
         Returns
         -------
@@ -239,20 +235,26 @@ class SequentialProjector:
         tau = tau.clone()      # projected trajectory — write target
         H = tau.shape[1]
 
+        # Determine which steps are pinned
+        pinned_steps = set(cond.keys()) if cond is not None else {0}
 
-        # --- index 1: speed projection only, no incoming heading ---
-        p_curr     = tau[:, 0]      # (B, 2)
-        p_hat_next = tau_hat[:, 1]  # (B, 2)
+        # --- index 1 ---
+        if 1 not in pinned_steps:
+            # speed projection only, no incoming heading
+            p_curr     = tau[:, 0]      # (B, 2)
+            p_hat_next = tau_hat[:, 1]  # (B, 2)
 
-        diff = p_hat_next - p_curr
-        dist = torch.norm(diff, dim=-1, keepdim=True)
-        default = torch.zeros_like(diff)
-        default[:, 0] = 1.0  # +x axis fallback
-        direction = torch.where(dist > 1e-6, diff / (dist + 1e-12), default)
-        tau[:, 1] = self._project_domain(p_curr + self.v_norm * direction)
+            diff = p_hat_next - p_curr
+            dist = torch.norm(diff, dim=-1, keepdim=True)
+            default = torch.zeros_like(diff)
+            default[:, 0] = 1.0  # +x axis fallback
+            direction = torch.where(dist > 1e-6, diff / (dist + 1e-12), default)
+            tau[:, 1] = self._project_domain(p_curr + self.v_norm * direction)
 
         # --- indices 2..H-1: full speed + turn projection ---
         for k in range(2, H):
+            if k in pinned_steps:
+                continue
             p_prev     = tau[:, k - 2] if k >= 2 else tau[:, 0]  # (B, 2)
             p_curr     = tau[:, k - 1]                            # (B, 2)
             p_hat_next = tau_hat[:, k]                            # (B, 2)

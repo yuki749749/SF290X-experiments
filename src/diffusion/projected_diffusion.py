@@ -55,9 +55,10 @@ class ProjectedGaussianDiffusion(GaussianDiffusion):
             t_batch = torch.full((B,), k, device=device, dtype=torch.long)
             x = self.p_sample(x, cond, t_batch, b_mean, b_var, returns, use_belief, use_return)
             x = apply_conditioning(x, cond, action_dim=0)
-            x_proj = self.projector.project(x.clone())
+            x_proj = self.projector.project(x.clone(), cond=cond)
             # print(torch.norm(x - x_proj).item())  # print projection difference at each step
             x = k/k_max * x + (1 - k/k_max) * x_proj  # blend projection with original step
+            x = apply_conditioning(x, cond, action_dim=0)
             if return_diffusion:
                 diffusion_steps.append(x)
 

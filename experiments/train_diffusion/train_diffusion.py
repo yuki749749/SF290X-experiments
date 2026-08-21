@@ -141,6 +141,7 @@ def main(cfg: DictConfig) -> None:
         grid_size=grid_size,
         max_step=max_step,
         initial_heading=initial_heading,
+        use_egocentric=cfg.architecture.get("use_egocentric", False),
     )
     val_set = TrajectoryDataset(
         val_path,
@@ -156,6 +157,7 @@ def main(cfg: DictConfig) -> None:
         grid_size=grid_size,
         max_step=max_step,
         initial_heading=initial_heading,
+        use_egocentric=cfg.architecture.get("use_egocentric", False),
     )
 
     train_loader = DataLoader(train_set, batch_size=cfg.training.batch_size, shuffle=True)

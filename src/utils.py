@@ -4,7 +4,12 @@ import os
 from pathlib import Path
 
 def abs_path(relative: str) -> str:
-    return os.path.join(get_original_cwd(), relative)
+    if os.path.isabs(relative):
+        return relative
+    try:
+        return os.path.join(get_original_cwd(), relative)
+    except ValueError:
+        return os.path.abspath(relative)
 
 def get_output_dir() -> str:
     """Return Hydra's resolved output directory for the current run."""
@@ -244,6 +249,7 @@ def get_planner(cfg):
             domain_max=list(cfg.domain_max),
             max_step=cfg.planner.max_step,
             stats=stats,
+            use_egocentric=cfg.planner.get("use_egocentric", False) or cfg.architecture.get("use_egocentric", False),
         )
     else:
         raise ValueError(f"Unknown planner type: {cfg.planner}")
