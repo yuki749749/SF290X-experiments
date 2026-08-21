@@ -113,17 +113,22 @@ def crop_belief_map(
     norm = (agent_pos - domain_min) / (domain_max - domain_min)  # [0, 1]
     ci = int(round(norm[0].item() * (grid_size - 1)))
     cj = int(round(norm[1].item() * (grid_size - 1)))
-    ci = max(0, min(grid_size - 1, ci))
-    cj = max(0, min(grid_size - 1, cj))
 
     half = crop_size // 2
     src_i0, src_i1 = ci - half, ci - half + crop_size
     src_j0, src_j1 = cj - half, cj - half + crop_size
 
+    # Clamp source indices to grid limits for slice boundaries
+    si0 = max(0, min(grid_size, src_i0))
+    si1 = max(0, min(grid_size, src_i1))
+    sj0 = max(0, min(grid_size, src_j0))
+    sj1 = max(0, min(grid_size, src_j1))
+
+    # Compute destination coordinates inside the crop patch
     dst_i0 = max(0, -src_i0)
+    dst_i1 = dst_i0 + (si1 - si0)
     dst_j0 = max(0, -src_j0)
-    si0, si1 = max(0, src_i0), min(grid_size, src_i1)
-    sj0, sj1 = max(0, src_j0), min(grid_size, src_j1)
+    dst_j1 = dst_j0 + (sj1 - sj0)
 
     mean_map = b_mean.view(grid_size, grid_size)
     var_map  = b_var.view(grid_size, grid_size)
@@ -131,10 +136,10 @@ def crop_belief_map(
     mean_crop = torch.zeros(crop_size, crop_size, dtype=b_mean.dtype, device=b_mean.device)
     var_crop  = torch.zeros(crop_size, crop_size, dtype=b_var.dtype,  device=b_var.device)
 
-    di1 = dst_i0 + (si1 - si0)
-    dj1 = dst_j0 + (sj1 - sj0)
-    mean_crop[dst_i0:di1, dst_j0:dj1] = mean_map[si0:si1, sj0:sj1]
-    var_crop[dst_i0:di1,  dst_j0:dj1] = var_map[si0:si1,  sj0:sj1]
+    # Apply copy only if there is a valid overlapping region
+    if si1 > si0 and sj1 > sj0:
+        mean_crop[dst_i0:dst_i1, dst_j0:dst_j1] = mean_map[si0:si1, sj0:sj1]
+        var_crop[dst_i0:dst_i1,  dst_j0:dst_j1] = var_map[si0:si1,  sj0:sj1]
 
     return mean_crop.flatten(), var_crop.flatten()
 

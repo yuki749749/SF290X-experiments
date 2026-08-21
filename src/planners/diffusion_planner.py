@@ -299,8 +299,8 @@ class DiffusionPlanner(BasePlanner):
                 cos_a = math.cos(heading)
                 sin_a = math.sin(heading)
                 rot_mat = torch.tensor([[
-                    [cos_a, -sin_a, 0.0],
-                    [sin_a,  cos_a, 0.0]
+                    [cos_a,  sin_a, 0.0],
+                    [-sin_a, cos_a, 0.0]
                 ]], dtype=torch.float32)
                 
                 x_batch = grid_img.unsqueeze(0)

@@ -72,13 +72,13 @@ def test_crop_rotation():
     grid_img[0, 0, 2] = 10.0 # Hot spot at top-middle of mean map
     grid_img[1, 0, 2] = 5.0  # Hot spot at top-middle of var map
     
-    # Rotate by pi/2 (90 degrees). The hot spot at top-middle should rotate to the left-middle (index 2, 0)
+    # Rotate by pi/2 (90 degrees). The hot spot at West (index 0, 2) should rotate to egocentric left (index 2, 4)
     angle = math.pi / 2
     cos_a = math.cos(angle)
     sin_a = math.sin(angle)
     rot_mat = torch.tensor([[
-        [cos_a, -sin_a, 0.0],
-        [sin_a,  cos_a, 0.0]
+        [cos_a,  sin_a, 0.0],
+        [-sin_a, cos_a, 0.0]
     ]], dtype=torch.float32)
     
     x_batch = grid_img.unsqueeze(0)
@@ -90,8 +90,8 @@ def test_crop_rotation():
     print("Rotated (90 deg) mean map:")
     print(rotated[0].numpy())
     
-    # The rotated hot spot should be at (2, 0)
-    assert rotated[0, 2, 0].item() > 5.0
+    # The rotated hot spot should be at egocentric left (2, 4)
+    assert rotated[0, 2, 4].item() > 5.0
     print("=> Crop rotation passed successfully!")
 
 if __name__ == "__main__":
