@@ -211,6 +211,9 @@ def main(cfg: DictConfig) -> None:
 
     best_val_loss = float("inf")
     best_checkpoint_path = os.path.join(output_dir, "best_checkpoint.pt")
+    patience = cfg.training.get("early_stopping_patience", 10)
+    patience_counter = 0
+    epoch = 0
 
     for epoch in tqdm(range(1, cfg.training.n_epochs + 1), desc="Training"):
         train_loss = run_epoch(model, train_loader, optimizer, device, cfg.diffusion.n_cond_steps, ema)
@@ -229,14 +232,22 @@ def main(cfg: DictConfig) -> None:
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            patience_counter = 0
             save_checkpoint(
                 best_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema, getattr(train_set, "stats", None)
             )
+        else:
+            patience_counter += 1
+
+        if patience_counter >= patience:
+            log.info(f"Early stopping triggered at epoch {epoch} (no improvement for {patience} epochs).")
+            tqdm.write(f"Early stopping triggered at epoch {epoch}.")
+            break
 
     final_checkpoint_path = os.path.join(output_dir, "final_checkpoint.pt")
     save_checkpoint(final_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema, getattr(train_set, "stats", None))
     log.info(f"Best model saved with val loss: {best_val_loss:.4f}")
-    log.info(f"Final model saved with val loss: {val_loss:.4f}")
+    log.info(f"Final model saved at epoch {epoch} with val loss: {val_loss:.4f}")
 
 
 

@@ -11,6 +11,7 @@ training:
   weight_decay: 1.0e-4
   eta_min: 1.0e-5
   ema_decay: 0.995
+  early_stopping_patience: 10
 
 horizon: 16
 stride: 4
