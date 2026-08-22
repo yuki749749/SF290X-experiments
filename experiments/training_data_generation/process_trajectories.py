@@ -239,7 +239,7 @@ def save_dataset(
     data_path  = os.path.join(out_dir, f"{prefix}_data.pkl")
     stats_path = os.path.join(out_dir, f"{prefix}_data_stats.json")
 
-    joblib.dump(dataset, data_path)
+    joblib.dump(dataset, data_path, compress=3)
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
 

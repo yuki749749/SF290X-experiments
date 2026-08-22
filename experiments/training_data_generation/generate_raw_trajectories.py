@@ -45,6 +45,8 @@ def run_single_trajectory(scenario_idx, cfg, gp_hyperparams, output_dir, evaluat
         output_dir=scenario_output_dir,
         diffusion_coefficient=cfg.diffusion_coefficient,
         update_in_domain_only=True,
+        stride=cfg.get("stride", 4),
+        horizon=cfg.get("horizon", 16),
     )
     logger.save_history("history.pkl")
 

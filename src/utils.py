@@ -57,6 +57,8 @@ def run_scenario(
     output_dir,
     diffusion_coefficient,
     update_in_domain_only=False,
+    stride=None,
+    horizon=None,
 ):
     """Simulate a planner trajectory step-by-step, updating the belief and logging."""
     import numpy as np
@@ -65,13 +67,19 @@ def run_scenario(
     from logger import Logger
 
     planner.reset(initial_position=initial_position, initial_heading=initial_heading)
-    ground_truth_eval_np = np.array([plume(scenario, p, diffusion_coefficient) for p in evaluation_x.numpy()])
-    ground_truth_eval = torch.tensor(ground_truth_eval_np, dtype=torch.float32)
+    
+    # Vectorized plume computation for evaluation and visualization grids
+    ground_truth_eval = torch.zeros(evaluation_x.shape[0], dtype=torch.float32, device=evaluation_x.device)
+    for source_pos, source_intensity in scenario:
+        source_pos_t = torch.tensor(source_pos, dtype=torch.float32, device=evaluation_x.device)
+        dists = torch.norm(evaluation_x - source_pos_t, p=2, dim=-1)
+        ground_truth_eval += source_intensity * torch.exp(-dists / diffusion_coefficient)
 
-    ground_truth_vis_np = np.array(
-        [plume(scenario, p, diffusion_coefficient) for p in visualization_x.numpy()]
-    )
-    ground_truth_vis = torch.tensor(ground_truth_vis_np, dtype=torch.float32)
+    ground_truth_vis = torch.zeros(visualization_x.shape[0], dtype=torch.float32, device=visualization_x.device)
+    for source_pos, source_intensity in scenario:
+        source_pos_t = torch.tensor(source_pos, dtype=torch.float32, device=visualization_x.device)
+        dists = torch.norm(visualization_x - source_pos_t, p=2, dim=-1)
+        ground_truth_vis += source_intensity * torch.exp(-dists / diffusion_coefficient)
 
     initial_measurement = plume(scenario, initial_position, diffusion_coefficient) + np.random.normal(0, sigma)
 
@@ -90,6 +98,9 @@ def run_scenario(
         vis_x=visualization_x,
         ground_truth_eval=ground_truth_eval,
         ground_truth_vis=ground_truth_vis,
+        stride=stride,
+        horizon=horizon,
+        n_timesteps=n_timesteps,
     )
     logger.log_step(initial_position, belief)
 

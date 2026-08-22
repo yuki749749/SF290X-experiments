@@ -13,6 +13,8 @@ defaults:
 
 n_timesteps: 400
 scenario_idx: 0
+stride: 4
+horizon: 16
 
 planner:
   randomize_first_step: true

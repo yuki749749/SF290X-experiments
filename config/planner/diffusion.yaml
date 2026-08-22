@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 type: diffusion
-checkpoint_path: results/train_diffusion/run/2026-08-21_12-16-13/final_checkpoint.pt
+checkpoint_path: results/train_diffusion/run/2026-08-21_15-39-35/best_checkpoint.pt
 replan_every: 4
 target_return: 1.2
 device: null                # null → auto (cuda if available, else cpu)

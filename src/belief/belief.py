@@ -39,10 +39,14 @@ class SimpleMaternGP:
         self.noise = torch.tensor(noise, dtype=torch.float32)
         self.train_x = train_x.clone().detach().float()
         self.train_y = train_y.clone().detach().float()
+        self._L = None
+        self._alpha = None
 
     def update(self, new_x, new_y):
         self.train_x = torch.cat([self.train_x, new_x.float()], dim=0)
         self.train_y = torch.cat([self.train_y, new_y.float()], dim=0)
+        self._L = None
+        self._alpha = None
 
     def _matern_kernel(self, x1, x2):
         x1_scaled = x1 / self.lengthscale
@@ -54,18 +58,19 @@ class SimpleMaternGP:
 
     def predict(self, test_x):
         N = self.train_x.size(0)
-        K_XX = self._matern_kernel(self.train_x, self.train_x)
-        K_XX_noisy = K_XX + self.noise * torch.eye(N, dtype=torch.float32, device=self.train_x.device)
+        if self._L is None or self._alpha is None:
+            K_XX = self._matern_kernel(self.train_x, self.train_x)
+            K_XX_noisy = K_XX + self.noise * torch.eye(N, dtype=torch.float32, device=self.train_x.device)
+            y_centered = self.train_y - self.mean_constant
+
+            self._L = torch.linalg.cholesky(K_XX_noisy)
+            w = torch.linalg.solve_triangular(self._L, y_centered.unsqueeze(-1), upper=False)
+            self._alpha = torch.linalg.solve_triangular(self._L.t(), w, upper=True).squeeze(-1)
+
         K_star_X = self._matern_kernel(test_x, self.train_x)
-        y_centered = self.train_y - self.mean_constant
+        pred_mean = K_star_X.mv(self._alpha) + self.mean_constant
 
-        L = torch.linalg.cholesky(K_XX_noisy)
-        w = torch.linalg.solve_triangular(L, y_centered.unsqueeze(-1), upper=False)
-        alpha = torch.linalg.solve_triangular(L.t(), w, upper=True).squeeze(-1)
-
-        pred_mean = K_star_X.mv(alpha) + self.mean_constant
-
-        v = torch.linalg.solve_triangular(L, K_star_X.t(), upper=False)
+        v = torch.linalg.solve_triangular(self._L, K_star_X.t(), upper=False)
         pred_var = self.outputscale - torch.sum(v ** 2, dim=0)
         pred_var = torch.clamp(pred_var, min=1e-8)
 
