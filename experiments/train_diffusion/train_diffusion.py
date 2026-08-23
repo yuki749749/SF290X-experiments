@@ -114,6 +114,7 @@ def save_checkpoint(path, epoch, model, optimizer, scheduler, best_val_loss, ema
 def main(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device}")
     output_dir = get_output_dir()
     log.info(f"Output directory: {output_dir}")
 

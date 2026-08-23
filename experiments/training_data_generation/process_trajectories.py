@@ -100,8 +100,8 @@ def extract_windows(
         raise ValueError(f"Unknown reward_type '{reward_type}'. Choose 'rmse' or 'trace_reduction'.")
 
     positions: list = list(history["position_history"])
-    means: list     = list(history["mean_history"])
-    variances: list = list(history["variance_history"])
+    means = history["mean_history"]
+    variances = history["variance_history"]
     rewards: list   = list(history[reward_key])
 
     T = len(positions) - 1  # index of last valid step (before prepend)
@@ -113,8 +113,10 @@ def extract_windows(
 
     # Prepend ghost / null so that positions[0] = p_{-1} and all lists have length T+2.
     positions = [ghost] + positions
-    means     = [None]  + means
-    variances = [None]  + variances
+    if not isinstance(means, dict):
+        means     = [None]  + list(means)
+    if not isinstance(variances, dict):
+        variances = [None]  + list(variances)
     rewards   = [None]  + rewards
 
     windows: list[dict] = []
@@ -124,17 +126,39 @@ def extract_windows(
         def _reward(t: int) -> np.float32:
             return (np.float32(rewards[t]) - np.float32(rewards[t + horizon - 2])) / (rmse_0 + 1e-8)
     else:  # trace_reduction
-        trace_0 = np.float32(np.sum(variances[1]))
-        def _reward(t: int) -> np.float32:
-            trace_start = np.float32(np.sum(variances[t]))
-            trace_end   = np.float32(np.sum(variances[t + horizon - 2]))
-            return (trace_start - trace_end) / (trace_0 + 1e-8)
+        if "trace_history" in history and history["trace_history"] is not None:
+            trace_hist = history["trace_history"]
+            trace_0 = np.float32(trace_hist[0])
+            def _reward(t: int) -> np.float32:
+                trace_start = np.float32(trace_hist[t - 1])
+                trace_end   = np.float32(trace_hist[t + horizon - 3])
+                return (trace_start - trace_end) / (trace_0 + 1e-8)
+        else:
+            if isinstance(variances, dict):
+                v1 = variances.get(0, np.zeros(1600, dtype=np.float32))
+                trace_0 = np.float32(np.sum(v1))
+                def _reward(t: int) -> np.float32:
+                    vt = variances.get(t - 1, np.zeros(1600, dtype=np.float32))
+                    ve = variances.get(t + horizon - 3, np.zeros(1600, dtype=np.float32))
+                    trace_start = np.float32(np.sum(vt))
+                    trace_end   = np.float32(np.sum(ve))
+                    return (trace_start - trace_end) / (trace_0 + 1e-8)
+            else:
+                trace_0 = np.float32(np.sum(variances[1]))
+                def _reward(t: int) -> np.float32:
+                    trace_start = np.float32(np.sum(variances[t]))
+                    trace_end   = np.float32(np.sum(variances[t + horizon - 2]))
+                    return (trace_start - trace_end) / (trace_0 + 1e-8)
 
     for t in range(1, T - horizon + 2, stride):
         tau    = np.asarray(positions[t - 1 : t + horizon - 1], dtype=np.float32)  # (H, 2)
         r      = _reward(t)
-        b_mean = np.asarray(means[t],     dtype=np.float32)
-        b_var  = np.asarray(variances[t], dtype=np.float32)
+        if isinstance(means, dict):
+            b_mean = np.asarray(means.get(t - 1, np.zeros(1600, dtype=np.float32)), dtype=np.float32)
+            b_var  = np.asarray(variances.get(t - 1, np.zeros(1600, dtype=np.float32)), dtype=np.float32)
+        else:
+            b_mean = np.asarray(means[t],     dtype=np.float32)
+            b_var  = np.asarray(variances[t], dtype=np.float32)
         windows.append({"tau": tau, "r": r, "b_mean": b_mean, "b_var": b_var})
 
     return windows
@@ -143,6 +167,7 @@ def extract_windows(
 def collect_dataset(
     triples: list[tuple[str, str, str]],
     reward_key: str,
+    stride: int = 4,
 ) -> tuple[list[dict], dict[str, int]]:
     """
     Gather raw trajectories from specified (scenario, planner) pairs.
@@ -163,11 +188,32 @@ def collect_dataset(
             skipped += 1
             continue
 
+        means_orig = history["mean_history"]
+        vars_orig = history["variance_history"]
+
+        # Precompute trace history (1D sum over grid)
+        vars_np = np.stack([v.cpu().numpy() if hasattr(v, "cpu") else np.asarray(v) for v in vars_orig])
+        trace_history = np.sum(vars_np, axis=-1).astype(np.float32)
+
+        means_dict = {}
+        vars_dict = {}
+
+        for idx in range(len(means_orig)):
+            # Store maps only at window starting indices (multiples of stride)
+            if idx % stride == 0:
+                m = means_orig[idx]
+                v = vars_orig[idx]
+                m_np = m.cpu().numpy() if hasattr(m, "cpu") else np.asarray(m)
+                v_np = v.cpu().numpy() if hasattr(v, "cpu") else np.asarray(v)
+                means_dict[idx] = m_np.astype(np.float16)
+                vars_dict[idx] = v_np.astype(np.float16)
+
         trajectory = {
             "positions": np.asarray(history["position_history"], dtype=np.float32),
-            "means": np.asarray(history["mean_history"], dtype=np.float32),
-            "variances": np.asarray(history["variance_history"], dtype=np.float32),
+            "means": means_dict,
+            "variances": vars_dict,
             "rmse_history": np.asarray(history[reward_key], dtype=np.float32),
+            "trace_history": trace_history,
             "planner": planner_tag,
         }
         dataset.append(trajectory)
@@ -355,7 +401,7 @@ def main(cfg: DictConfig) -> None:
             continue
         print(f"\n=== Processing split '{prefix}' ({len(sdirs)} scenarios) ===")
         triples = collect_history_paths_for_dirs(sdirs)
-        dataset, counts = collect_dataset(triples, reward_key)
+        dataset, counts = collect_dataset(triples, reward_key, stride=stride)
         if not dataset:
             print(f"No trajectories loaded for split '{prefix}'")
             continue
@@ -369,6 +415,7 @@ def main(cfg: DictConfig) -> None:
                 "mean_history": traj["means"],
                 "variance_history": traj["variances"],
                 reward_key: traj["rmse_history"],
+                "trace_history": traj.get("trace_history"),
             }
             windows = extract_windows(
                 history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading

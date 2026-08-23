@@ -146,9 +146,22 @@ class TrajectoryDataset(Dataset):
             rmse_0 = rewards[0]
             r_val = (rewards[t - 1] - rewards[t + self.horizon - 3]) / (rmse_0 + 1e-8)
         else:  # trace_reduction
-            trace_0 = traj["variances"][0].sum()
-            trace_start = traj["variances"][t - 1].sum()
-            trace_end = traj["variances"][t + self.horizon - 3].sum()
+            if "trace_history" in traj:
+                trace_0 = traj["trace_history"][0]
+                trace_start = traj["trace_history"][t - 1]
+                trace_end = traj["trace_history"][t + self.horizon - 3]
+            else:
+                if isinstance(traj["variances"], dict):
+                    v0 = traj["variances"].get(0, np.zeros(self.grid_size * self.grid_size, dtype=np.float32))
+                    vt = traj["variances"].get(t - 1, np.zeros(self.grid_size * self.grid_size, dtype=np.float32))
+                    ve = traj["variances"].get(t + self.horizon - 3, np.zeros(self.grid_size * self.grid_size, dtype=np.float32))
+                    trace_0 = v0.sum()
+                    trace_start = vt.sum()
+                    trace_end = ve.sum()
+                else:
+                    trace_0 = traj["variances"][0].sum()
+                    trace_start = traj["variances"][t - 1].sum()
+                    trace_end = traj["variances"][t + self.horizon - 3].sum()
             r_val = (trace_start - trace_end) / (trace_0 + 1e-8)
             
         r = torch.tensor([r_val], dtype=torch.float32)
@@ -156,8 +169,19 @@ class TrajectoryDataset(Dataset):
             r = torch.clamp((r - self.r_min) / (self.r_max - self.r_min + 1e-8), 0.0, 1.0)
 
         # Get belief states at step t (index t-1 in raw lists)
-        b_mean = torch.from_numpy(traj["means"][t - 1]).float()
-        b_var  = torch.from_numpy(traj["variances"][t - 1]).float()
+        if isinstance(traj["means"], dict):
+            b_mean_np = traj["means"].get(t - 1)
+            if b_mean_np is None:
+                b_mean_np = np.zeros(self.grid_size * self.grid_size, dtype=np.float32)
+            b_mean = torch.from_numpy(b_mean_np).float()
+
+            b_var_np = traj["variances"].get(t - 1)
+            if b_var_np is None:
+                b_var_np = np.zeros(self.grid_size * self.grid_size, dtype=np.float32)
+            b_var = torch.from_numpy(b_var_np).float()
+        else:
+            b_mean = torch.from_numpy(traj["means"][t - 1]).float()
+            b_var  = torch.from_numpy(traj["variances"][t - 1]).float()
 
         # Crop if necessary (local belief crop around starting position)
         if self.crop_size < self.grid_size or self.use_egocentric:

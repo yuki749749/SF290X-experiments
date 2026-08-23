@@ -76,6 +76,7 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
             "mean_history": traj["means"],
             "variance_history": traj["variances"],
             reward_key: traj["rmse_history"],
+            "trace_history": traj.get("trace_history"),
         }
         windows = extract_windows(
             history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
