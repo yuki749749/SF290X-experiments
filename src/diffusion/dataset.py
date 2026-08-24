@@ -32,25 +32,50 @@ class TrajectoryDataset(Dataset):
         path: str,
         domain_size,
         domain_pad: float,
-        horizon: int = 16,
-        stride: int = 4,
-        reward_key: str = "rmse_history",
-        reward_type: str = "rmse",
+        horizon: Optional[int] = None,
+        stride: Optional[int] = None,
+        reward_key: Optional[str] = None,
+        reward_type: Optional[str] = None,
         crop_size: int = 40,
         domain_min: Optional[Sequence[float]] = None,
         domain_max: Optional[Sequence[float]] = None,
         grid_size: int = 40,
-        max_step: float = 10.0,
-        initial_heading: float = np.pi / 4,
+        max_step: Optional[float] = None,
+        initial_heading: Optional[float] = None,
         use_egocentric: bool = False,
     ):
         self.raw_trajectories = joblib.load(path)
-        self.horizon = horizon
-        self.stride = stride
-        self.reward_key = reward_key
-        self.reward_type = reward_type
-        self.max_step = max_step
-        self.initial_heading = initial_heading
+
+        # Load normalization stats from training stats file in the same directory
+        self.stats = {}
+        training_stats_path = os.path.join(os.path.dirname(path), "training_data_stats.json")
+        if os.path.exists(training_stats_path):
+            try:
+                with open(training_stats_path, "r") as f:
+                    self.stats = json.load(f)
+            except Exception as exc:
+                print(f"[WARN] Error loading training stats from {training_stats_path}: {exc}")
+
+        # Resolve parameters from stats if not explicitly passed, falling back to defaults
+        self.horizon = self.stats.get("horizon", horizon)
+        if self.horizon is None:
+            self.horizon = 16
+        self.stride = self.stats.get("stride", stride)
+        if self.stride is None:
+            self.stride = 4
+        self.reward_key = self.stats.get("reward_key", reward_key)
+        if self.reward_key is None:
+            self.reward_key = "rmse_history"
+        self.reward_type = self.stats.get("reward_type", reward_type)
+        if self.reward_type is None:
+            self.reward_type = "rmse"
+        self.max_step = self.stats.get("max_step", max_step)
+        if self.max_step is None:
+            self.max_step = 10.0
+        self.initial_heading = self.stats.get("initial_heading", initial_heading)
+        if self.initial_heading is None:
+            self.initial_heading = np.pi / 4
+
         self.use_egocentric = use_egocentric
 
         self.domain_size = torch.tensor(domain_size, dtype=torch.float32)
@@ -69,24 +94,22 @@ class TrajectoryDataset(Dataset):
             for t in range(1, T - self.horizon + 2, self.stride):
                 self.window_lookup.append((traj_idx, t))
 
-        # Load normalization stats from training stats file in the same directory
-        training_stats_path = os.path.join(os.path.dirname(path), "training_data_stats.json")
-        if os.path.exists(training_stats_path):
-            try:
-                with open(training_stats_path, "r") as f:
-                    self.stats = json.load(f)
-                self.b_mean_mean = torch.tensor(self.stats.get("b_mean_global_mean", 0.0), dtype=torch.float32)
-                self.b_mean_std  = torch.tensor(self.stats.get("b_mean_global_std", 1.0), dtype=torch.float32)
-                self.b_var_mean  = torch.tensor(self.stats.get("b_var_global_mean", 0.0), dtype=torch.float32)
-                self.b_var_std   = torch.tensor(self.stats.get("b_var_global_std", 1.0), dtype=torch.float32)
-                self.r_min       = torch.tensor(self.stats.get("r_min", 0.0), dtype=torch.float32)
-                self.r_max       = torch.tensor(self.stats.get("r_max", 1.0), dtype=torch.float32)
-                self.normalize_beliefs = True
-                self.normalize_reward = True
-            except Exception as exc:
-                print(f"[WARN] Error loading training stats from {training_stats_path}: {exc}")
-                self.normalize_beliefs = False
-                self.normalize_reward = False
+        if self.stats:
+            self.b_mean_mean = torch.tensor(self.stats.get("b_mean_global_mean", 0.0), dtype=torch.float32)
+            self.b_mean_std  = torch.tensor(self.stats.get("b_mean_global_std", 1.0), dtype=torch.float32)
+            self.b_var_mean  = torch.tensor(self.stats.get("b_var_global_mean", 0.0), dtype=torch.float32)
+            self.b_var_std   = torch.tensor(self.stats.get("b_var_global_std", 1.0), dtype=torch.float32)
+            
+            # Select appropriate min/max based on selected reward type with backward-compatible fallbacks
+            if self.reward_type == "rmse":
+                self.r_min = torch.tensor(self.stats.get("rmse_r_min", self.stats.get("r_min", 0.0)), dtype=torch.float32)
+                self.r_max = torch.tensor(self.stats.get("rmse_r_max", self.stats.get("r_max", 1.0)), dtype=torch.float32)
+            else:  # trace_reduction
+                self.r_min = torch.tensor(self.stats.get("trace_r_min", self.stats.get("r_min", 0.0)), dtype=torch.float32)
+                self.r_max = torch.tensor(self.stats.get("trace_r_max", self.stats.get("r_max", 1.0)), dtype=torch.float32)
+                
+            self.normalize_beliefs = True
+            self.normalize_reward = True
         else:
             self.normalize_beliefs = False
             self.normalize_reward = False

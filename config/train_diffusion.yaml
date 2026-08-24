@@ -13,9 +13,12 @@ training:
   ema_decay: 0.995
   early_stopping_patience: 10
 
-horizon: 16
-stride: 4
-reward_key: rmse_history
-reward_type: rmse
+# Optional dataset/training overrides. If set to null (or omitted), 
+# they automatically inherit settings from the processed dataset's stats JSON.
+# (Note: reward_type can be switched freely between 'rmse' and 'trace_reduction')
+horizon: null
+stride: null
+reward_key: null
+reward_type: null
 
 dataset_dir: ???

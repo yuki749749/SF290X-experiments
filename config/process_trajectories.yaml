@@ -11,13 +11,9 @@ train_fraction: 0.9
 val_fraction: 0.1
 test_fraction: 0.0
 
+# Window settings for trajectory slicing
 horizon: 16
 stride: 4
-
-# reward_type: "rmse"            → (rmse[t] - rmse[t+H-2]) / rmse[t]  (uses reward_key)
-# reward_type: "trace_reduction" → ntr[t+H-2] - ntr[t]                (uses reward_key)
-reward_type: rmse
-reward_key: rmse_history
 
 # Root that contains all timestamped sweep runs.
 # The script picks the most recently modified subdirectory automatically.

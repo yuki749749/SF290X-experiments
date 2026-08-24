@@ -231,7 +231,8 @@ def collect_dataset(
 # ── Statistics ────────────────────────────────────────────────────────────────
 
 def compute_stats(
-    dataset: list[dict],
+    dataset_rmse: list[dict],
+    dataset_trace: list[dict],
     horizon: int,
     stride: int,
     reward_key: str,
@@ -240,17 +241,18 @@ def compute_stats(
     initial_heading: float,
     counts: dict[str, int],
 ) -> dict:
-    all_tau    = np.stack([d["tau"]    for d in dataset])  # (N, H, 2)
-    all_r      = np.array([d["r"]      for d in dataset])  # (N,)
-    all_b_mean = np.stack([d["b_mean"] for d in dataset])  # (N, n_eval)
-    all_b_var  = np.stack([d["b_var"]  for d in dataset])  # (N, n_eval)
+    all_tau    = np.stack([d["tau"]    for d in dataset_rmse])  # (N, H, 2)
+    all_r_rmse = np.array([d["r"]      for d in dataset_rmse])  # (N,)
+    all_r_trace= np.array([d["r"]      for d in dataset_trace]) # (N,)
+    all_b_mean = np.stack([d["b_mean"] for d in dataset_rmse])  # (N, n_eval)
+    all_b_var  = np.stack([d["b_var"]  for d in dataset_rmse])  # (N, n_eval)
 
     return {
-        "n_samples":             len(dataset),
+        "n_samples":             len(dataset_rmse),
         "horizon":               horizon,
         "stride":                stride,
         "reward_key":            reward_key,
-        "reward_type":           reward_type,
+        "reward_type":           reward_type,  # The selected/active reward type (metadata)
         "max_step":              max_step,
         "initial_heading":       initial_heading,
         "windows_per_planner":   counts,
@@ -259,11 +261,19 @@ def compute_stats(
         "tau_std":               all_tau.std(axis=(0, 1)).tolist(),
         "tau_min":               float(all_tau.min()),
         "tau_max":               float(all_tau.max()),
-        # reward
-        "r_mean":                float(all_r.mean()),
-        "r_std":                 float(all_r.std()),
-        "r_min":                 float(all_r.min()),
-        "r_max":                 float(all_r.max()),
+        # backward compatibility fallback
+        "r_min":                 float(all_r_rmse.min()) if reward_type == "rmse" else float(all_r_trace.min()),
+        "r_max":                 float(all_r_rmse.max()) if reward_type == "rmse" else float(all_r_trace.max()),
+        # rmse reward
+        "rmse_r_mean":           float(all_r_rmse.mean()),
+        "rmse_r_std":            float(all_r_rmse.std()),
+        "rmse_r_min":            float(all_r_rmse.min()),
+        "rmse_r_max":            float(all_r_rmse.max()),
+        # trace reduction reward
+        "trace_r_mean":          float(all_r_trace.mean()),
+        "trace_r_std":           float(all_r_trace.std()),
+        "trace_r_min":           float(all_r_trace.min()),
+        "trace_r_max":           float(all_r_trace.max()),
         # belief mean
         "b_mean_global_mean":    float(all_b_mean.mean()),
         "b_mean_global_std":     float(all_b_mean.std()),
@@ -346,7 +356,7 @@ def main(cfg: DictConfig) -> None:
 
     horizon     = int(cfg.horizon)
     stride      = int(cfg.stride)
-    reward_key  = str(cfg.reward_key)
+    reward_key  = str(OmegaConf.select(cfg, "reward_key", default="rmse_history"))
     reward_type = str(OmegaConf.select(cfg, "reward_type", default="rmse"))
     out_dir     = get_output_dir()
 
@@ -407,7 +417,8 @@ def main(cfg: DictConfig) -> None:
             continue
 
         # Temporarily perform window extraction to compute statistics and plot reward distribution
-        windowed_dataset = []
+        windowed_dataset_rmse = []
+        windowed_dataset_trace = []
         window_counts = {tag: 0 for tag in PLANNER_DIRS.values()}
         for traj in dataset:
             history_mock = {
@@ -417,20 +428,25 @@ def main(cfg: DictConfig) -> None:
                 reward_key: traj["rmse_history"],
                 "trace_history": traj.get("trace_history"),
             }
-            windows = extract_windows(
-                history_mock, horizon, stride, reward_key, reward_type, max_step, initial_heading
+            windows_rmse = extract_windows(
+                history_mock, horizon, stride, reward_key, "rmse", max_step, initial_heading
             )
-            for w in windows:
+            windows_trace = extract_windows(
+                history_mock, horizon, stride, reward_key, "trace_reduction", max_step, initial_heading
+            )
+            for w in windows_rmse:
                 w["planner"] = traj["planner"]
-            windowed_dataset.extend(windows)
-            window_counts[traj["planner"]] += len(windows)
+            windowed_dataset_rmse.extend(windows_rmse)
+            windowed_dataset_trace.extend(windows_trace)
+            window_counts[traj["planner"]] += len(windows_rmse)
 
-        if not windowed_dataset:
+        if not windowed_dataset_rmse:
             print(f"No windows extracted for split '{prefix}' with current horizon/stride")
             stats = {}
         else:
             stats = compute_stats(
-                windowed_dataset,
+                windowed_dataset_rmse,
+                windowed_dataset_trace,
                 horizon,
                 stride,
                 reward_key,
