@@ -20,6 +20,7 @@ class ProjectedGaussianDiffusion(GaussianDiffusion):
         cond: dict,
         b_mean: torch.Tensor,
         b_var: torch.Tensor,
+        b_bound: torch.Tensor,
         returns: torch.Tensor,
         verbose: bool = False,
         return_diffusion: bool = False,
@@ -53,7 +54,7 @@ class ProjectedGaussianDiffusion(GaussianDiffusion):
         k_max = self.n_timesteps if noise_steps is None else noise_steps
         for k in reversed(reverse_range):
             t_batch = torch.full((B,), k, device=device, dtype=torch.long)
-            x = self.p_sample(x, cond, t_batch, b_mean, b_var, returns, use_belief, use_return)
+            x = self.p_sample(x, cond, t_batch, b_mean, b_var, b_bound, returns, use_belief, use_return)
             x = apply_conditioning(x, cond, action_dim=0)
             x_proj = self.projector.project(x.clone(), cond=cond)
             # print(torch.norm(x - x_proj).item())  # print projection difference at each step

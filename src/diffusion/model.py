@@ -226,6 +226,7 @@ class TemporalUnet(nn.Module):
         time:                 torch.Tensor,   # (B,)
         b_mean:               torch.Tensor,   # (B, 1600)
         b_var:                torch.Tensor,   # (B, 1600)
+        b_bound:              torch.Tensor,   # (B, 1600)
         returns:              torch.Tensor,   # (B, 1)
         use_dropout:          bool,
         force_dropout:        bool,
@@ -254,7 +255,7 @@ class TemporalUnet(nn.Module):
             return_embed = torch.zeros_like(return_embed)
 
         # CNN path
-        belief_embed = self.belief_encoder(b_mean, b_var)              # (B, dim)
+        belief_embed = self.belief_encoder(b_mean, b_var, b_bound)              # (B, dim)
         if not use_belief:
             belief_embed = torch.zeros_like(belief_embed)
 
@@ -277,6 +278,7 @@ class TemporalUnet(nn.Module):
         time:                 torch.Tensor,     # (B,)
         b_mean:               torch.Tensor,     # (B, 1600)
         b_var:                torch.Tensor,     # (B, 1600)
+        b_bound:              torch.Tensor,     # (B, 1600)
         returns:              torch.Tensor,     # (B, 1)
         use_dropout:          bool = True,
         force_dropout:        bool = False,
@@ -291,7 +293,7 @@ class TemporalUnet(nn.Module):
         # (B, horizon, 2) → (B, 2, horizon)  – conv expects channels first
         x = einops.rearrange(x, "b h t -> b t h")
 
-        t = self._build_embedding(time, b_mean, b_var, returns,
+        t = self._build_embedding(time, b_mean, b_var, b_bound, returns,
                                   use_dropout, force_dropout, use_belief, use_return,
                                   force_belief_dropout, force_return_dropout)
 

@@ -84,8 +84,25 @@ class TrajectoryDataset(Dataset):
         self.grid_size = grid_size
         _dmin = list(domain_min) if domain_min is not None else [0.0, 0.0]
         _dmax = list(domain_max) if domain_max is not None else list(domain_size[:2])
-        self.domain_min = torch.tensor(_dmin, dtype=torch.float32)
-        self.domain_max = torch.tensor(_dmax, dtype=torch.float32)
+        
+        # Shift domain bounds to include domain_pad so that crop_belief_map aligns with the vis_x grid covering [-pad, size + pad]
+        self.domain_min = torch.tensor([_dmin[0] - domain_pad, _dmin[1] - domain_pad], dtype=torch.float32)
+        self.domain_max = torch.tensor([_dmax[0] + domain_pad, _dmax[1] + domain_pad], dtype=torch.float32)
+
+        # Build global boundary map of size (grid_size, grid_size)
+        # where inside [0, W] x [0, H] is 0.0, and outside (padded area) is 1.0.
+        xs = torch.linspace(self.domain_min[0].item(), self.domain_max[0].item(), grid_size)
+        ys = torch.linspace(self.domain_min[1].item(), self.domain_max[1].item(), grid_size)
+        x_grid, y_grid = torch.meshgrid(xs, ys, indexing='ij')
+        
+        # Inner domain boundaries
+        inner_min_x, inner_min_y = _dmin
+        inner_max_x, inner_max_y = _dmax
+        
+        # 1.0 outside the inner domain, 0.0 inside
+        boundary_mask = ~((inner_min_x <= x_grid) & (x_grid <= inner_max_x) & 
+                          (inner_min_y <= y_grid) & (y_grid <= inner_max_y))
+        self.boundary_map = boundary_mask.float().flatten()  # (grid_size^2,)
 
         # Pre-compute valid window starting steps for all trajectories
         self.window_lookup = []
@@ -206,14 +223,17 @@ class TrajectoryDataset(Dataset):
             b_mean = torch.from_numpy(traj["means"][t - 1]).float()
             b_var  = torch.from_numpy(traj["variances"][t - 1]).float()
 
+        # Pre-initialize boundary map (in case cropping is not used)
+        b_bound = self.boundary_map.clone()
+
         # Crop if necessary (local belief crop around starting position)
         if self.crop_size < self.grid_size or self.use_egocentric:
             if self.use_egocentric:
                 agent_pos = torch.tensor(p_curr, dtype=torch.float32)
             else:
                 agent_pos = self.denormalise_tau(tau[0])  # (2,) physical coords
-            b_mean, b_var = crop_belief_map(
-                b_mean, b_var, agent_pos,
+            b_mean, b_var, b_bound = crop_belief_map(
+                b_mean, b_var, self.boundary_map, agent_pos,
                 self.domain_min, self.domain_max,
                 self.crop_size, self.grid_size,
             )
@@ -222,8 +242,9 @@ class TrajectoryDataset(Dataset):
             if self.use_egocentric:
                 grid_img = torch.stack([
                     b_mean.view(self.crop_size, self.crop_size),
-                    b_var.view(self.crop_size, self.crop_size)
-                ], dim=0) # (2, H, W)
+                    b_var.view(self.crop_size, self.crop_size),
+                    b_bound.view(self.crop_size, self.crop_size)
+                ], dim=0) # (3, H, W)
                 
                 cos_a = math.cos(heading)
                 sin_a = math.sin(heading)
@@ -240,10 +261,11 @@ class TrajectoryDataset(Dataset):
                 rotated = rotated.squeeze(0)
                 b_mean = rotated[0].flatten()
                 b_var  = rotated[1].flatten()
+                b_bound = rotated[2].flatten()
 
         # Apply normalization if stats were loaded successfully
         if self.normalize_beliefs:
             b_mean = (b_mean - self.b_mean_mean) / (self.b_mean_std + 1e-8)
             b_var  = (b_var - self.b_var_mean) / (self.b_var_std + 1e-8)
 
-        return {"tau": tau, "r": r, "b_mean": b_mean, "b_var": b_var}
+        return {"tau": tau, "r": r, "b_mean": b_mean, "b_var": b_var, "b_bound": b_bound}

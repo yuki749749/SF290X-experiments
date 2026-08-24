@@ -71,6 +71,7 @@ def run_epoch(
             r = batch["r"].to(device)  # (B, 1)
             b_mean = batch["b_mean"].to(device)  # (B, 1600)
             b_var = batch["b_var"].to(device)  # (B, 1600)
+            b_bound = batch["b_bound"].to(device)  # (B, 1600)
 
             cond = {}
             for cond_step in range(n_cond_steps):
@@ -78,7 +79,7 @@ def run_epoch(
                 
             # cond = {0: tau[:, 0, :].clone()}
 
-            loss, _ = model.loss(tau, cond, b_mean, b_var, r)
+            loss, _ = model.loss(tau, cond, b_mean, b_var, b_bound, r)
 
             if is_train:
                 optimizer.zero_grad()

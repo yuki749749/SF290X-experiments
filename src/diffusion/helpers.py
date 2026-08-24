@@ -95,18 +95,19 @@ class Conv1dBlock(nn.Module):
 # ---------------------------------------------------------------------------
 
 def crop_belief_map(
-    b_mean: torch.Tensor,      # (grid_size²,) flattened
-    b_var: torch.Tensor,       # (grid_size²,) flattened
-    agent_pos: torch.Tensor,   # (2,) physical coordinates
-    domain_min: torch.Tensor,  # (2,)
-    domain_max: torch.Tensor,  # (2,)
+    b_mean: torch.Tensor,       # (grid_size²,) flattened
+    b_var: torch.Tensor,        # (grid_size²,) flattened
+    boundary_map: torch.Tensor, # (grid_size²,) flattened
+    agent_pos: torch.Tensor,    # (2,) physical coordinates
+    domain_min: torch.Tensor,   # (2,)
+    domain_max: torch.Tensor,   # (2,)
     crop_size: int,
     grid_size: int = 40,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Extract a crop_size×crop_size patch from the belief maps centred on
-    the agent's grid cell.  Zero-pads where the crop extends outside the
-    grid boundary, which implicitly encodes domain edges to the model.
+    Extract a crop_size×crop_size patch from the belief maps and boundary map
+    centred on the agent's grid cell. Pads where the crop extends outside the
+    grid boundary (mean with 0.0, var with 1.0 (GP prior variance), boundary with 1.0).
 
     Returns flattened (crop_size²,) tensors on the same device as b_mean.
     """
@@ -132,16 +133,21 @@ def crop_belief_map(
 
     mean_map = b_mean.view(grid_size, grid_size)
     var_map  = b_var.view(grid_size, grid_size)
+    bound_map = boundary_map.view(grid_size, grid_size)
 
     mean_crop = torch.zeros(crop_size, crop_size, dtype=b_mean.dtype, device=b_mean.device)
-    var_crop  = torch.zeros(crop_size, crop_size, dtype=b_var.dtype,  device=b_var.device)
+    # Pad out-of-bounds variance with 1.0 (prior variance)
+    var_crop  = torch.ones(crop_size, crop_size, dtype=b_var.dtype,  device=b_var.device)
+    # Pad out-of-bounds boundary map with 1.0 (outside domain indicator)
+    bound_crop = torch.ones(crop_size, crop_size, dtype=boundary_map.dtype, device=boundary_map.device)
 
     # Apply copy only if there is a valid overlapping region
     if si1 > si0 and sj1 > sj0:
         mean_crop[dst_i0:dst_i1, dst_j0:dst_j1] = mean_map[si0:si1, sj0:sj1]
         var_crop[dst_i0:dst_i1,  dst_j0:dst_j1] = var_map[si0:si1,  sj0:sj1]
+        bound_crop[dst_i0:dst_i1, dst_j0:dst_j1] = bound_map[si0:si1, sj0:sj1]
 
-    return mean_crop.flatten(), var_crop.flatten()
+    return mean_crop.flatten(), var_crop.flatten(), bound_crop.flatten()
 
 
 # ---------------------------------------------------------------------------
@@ -150,41 +156,20 @@ def crop_belief_map(
 
 class BeliefEncoder(nn.Module):
     """
-    Encodes the GP belief state (mean map + variance map) into a fixed-size
+    Encodes the GP belief state (mean map + variance map + boundary mask) into a fixed-size
     embedding vector that is later concatenated with the diffusion timestep
     embedding inside TemporalUnet.
 
     Input
     -----
-    b_mean : (B, grid_size²)  – flattened GP posterior mean
-    b_var  : (B, grid_size²)  – flattened GP posterior variance
+    b_mean  : (B, grid_size²)  – flattened GP posterior mean
+    b_var   : (B, grid_size²)  – flattened GP posterior variance
+    b_bound : (B, grid_size²)  – flattened boundary mask
 
-    The two maps are stacked as a 2-channel grid_size×grid_size image and
+    The three maps are stacked as a 3-channel grid_size×grid_size image and
     processed by a lightweight CNN, then projected to `out_dim`.
     AdaptiveAvgPool2d(1) makes the CNN agnostic to the spatial input size,
     so the same architecture works for the full 40×40 map or any crop.
-
-    Architecture (pooling=False, default)
-    --------------------------------------
-    Input  (B, 2, G, G)        where G = grid_size
-    Conv 3×3  16 ch → BN → Mish               (B,  16, G,   G  )
-    Conv 3×3  32 ch → BN → Mish  stride-2     (B,  32, G/2, G/2)
-    Conv 3×3  64 ch → BN → Mish  stride-2     (B,  64, G/4, G/4)
-    Conv 3×3 128 ch → BN → Mish  stride-2     (B, 128, G/8, G/8)
-    Flatten → (B, 128 × (G/8)²)
-    Linear(128 × (G/8)², out_dim) → (B, out_dim)
-
-    For G=24: spatial map is 3×3, flat_dim = 1152, Linear(1152, out_dim).
-    Each of the 9 spatial cells gets its own learned weight, preserving
-    directional information relative to the agent.
-
-    Architecture (pooling=True)
-    ---------------------------
-    Same CNN backbone, then AdaptiveAvgPool2d(1) → (B, 128, 1, 1)
-    Flatten → (B, 128)
-    Linear(128, out_dim) → (B, out_dim)
-
-    Grid-size agnostic; loses spatial layout but has fewer parameters.
     """
 
     def __init__(self, out_dim: int = 128, grid_size: int = 40, pooling: bool = False):
@@ -201,7 +186,7 @@ class BeliefEncoder(nn.Module):
             )
 
         self.cnn = nn.Sequential(
-            _block(2,   16, stride=1),
+            _block(3,   16, stride=1),  # changed to 3 input channels
             _block(16,  32, stride=2),
             _block(32,  64, stride=2),
             _block(64, 128, stride=2),
@@ -213,7 +198,7 @@ class BeliefEncoder(nn.Module):
         else:
             self.pool = None
             with torch.no_grad():
-                _dummy = torch.zeros(1, 2, grid_size, grid_size)
+                _dummy = torch.zeros(1, 3, grid_size, grid_size)
                 proj_in = self.cnn(_dummy).flatten(1).shape[1]
 
         self.proj = nn.Sequential(
@@ -222,11 +207,12 @@ class BeliefEncoder(nn.Module):
             nn.Mish(),
         )
 
-    def forward(self, b_mean: torch.Tensor, b_var: torch.Tensor) -> torch.Tensor:
+    def forward(self, b_mean: torch.Tensor, b_var: torch.Tensor, b_bound: torch.Tensor) -> torch.Tensor:
         B = b_mean.shape[0]
         mean_map = b_mean.view(B, 1, self.grid_size, self.grid_size)
         var_map  = b_var.view( B, 1, self.grid_size, self.grid_size)
-        x = torch.cat([mean_map, var_map], dim=1)
+        bound_map = b_bound.view(B, 1, self.grid_size, self.grid_size)
+        x = torch.cat([mean_map, var_map, bound_map], dim=1)
         x = self.cnn(x)
         if self.pool is not None:
             x = self.pool(x)

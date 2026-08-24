@@ -198,6 +198,7 @@ class GaussianDiffusion(nn.Module):
         t: torch.Tensor,  # (B,)  int64
         b_mean: torch.Tensor,
         b_var: torch.Tensor,
+        b_bound: torch.Tensor,
         returns: torch.Tensor,
         use_belief: bool = True,
         use_return: bool = True,
@@ -214,12 +215,12 @@ class GaussianDiffusion(nn.Module):
         """
         _kw = dict(use_dropout=False, use_belief=use_belief, use_return=use_return)
 
-        eps_uncond = self.model(x, cond, t, b_mean, b_var, returns,
+        eps_uncond = self.model(x, cond, t, b_mean, b_var, b_bound, returns,
                                 force_dropout=True, **_kw)
 
         if self.belief_guidance_w is None and self.return_guidance_w is None:
             # original 2-pass CFG
-            eps_cond = self.model(x, cond, t, b_mean, b_var, returns,
+            eps_cond = self.model(x, cond, t, b_mean, b_var, b_bound, returns,
                                   force_dropout=False, **_kw)
             return eps_uncond + self.condition_guidance_w * (eps_cond - eps_uncond)
 
@@ -227,10 +228,10 @@ class GaussianDiffusion(nn.Module):
         w_b = self.belief_guidance_w if self.belief_guidance_w is not None else self.condition_guidance_w
         w_r = self.return_guidance_w if self.return_guidance_w is not None else self.condition_guidance_w
 
-        eps_belief = self.model(x, cond, t, b_mean, b_var, returns,
+        eps_belief = self.model(x, cond, t, b_mean, b_var, b_bound, returns,
                                 force_dropout=False,
                                 force_return_dropout=True, **_kw)
-        eps_return = self.model(x, cond, t, b_mean, b_var, returns,
+        eps_return = self.model(x, cond, t, b_mean, b_var, b_bound, returns,
                                 force_dropout=False,
                                 force_belief_dropout=True, **_kw)
 
@@ -245,6 +246,7 @@ class GaussianDiffusion(nn.Module):
         t: torch.Tensor,  # (B,)
         b_mean: torch.Tensor,  # (B, 1600)
         b_var: torch.Tensor,  # (B, 1600)
+        b_bound: torch.Tensor,  # (B, 1600)
         returns: torch.Tensor,  # (B, 1)
         use_belief: bool = True,
         use_return: bool = True,
@@ -253,19 +255,7 @@ class GaussianDiffusion(nn.Module):
         CFG combination:
             ε = ε_uncond + w * (ε_cond − ε_uncond)
         """
-        # # conditional prediction (belief + return active)
-        # eps_cond = self.model(
-        #     x, cond, t, b_mean, b_var, returns,
-        #     use_dropout=False, force_dropout=False,
-        # )
-        # # unconditional prediction (belief + return zeroed)
-        # eps_uncond = self.model(
-        #     x, cond, t, b_mean, b_var, returns,
-        #     use_dropout=False, force_dropout=True,
-        # )
-        # eps = eps_uncond + self.condition_guidance_w * (eps_cond - eps_uncond)
-
-        eps = self._predict_eps_cfg(x, cond, t, b_mean, b_var, returns, use_belief, use_return)
+        eps = self._predict_eps_cfg(x, cond, t, b_mean, b_var, b_bound, returns, use_belief, use_return)
 
         t_int = t.detach().to(torch.int64)
         x_recon = self.predict_start_from_noise(x, t=t_int, noise=eps)
@@ -286,13 +276,14 @@ class GaussianDiffusion(nn.Module):
         t: torch.Tensor,
         b_mean: torch.Tensor,
         b_var: torch.Tensor,
+        b_bound: torch.Tensor,
         returns: torch.Tensor,
         use_belief: bool = True,
         use_return: bool = True,
     ) -> torch.Tensor:
         b, *_, device = *x.shape, x.device
         model_mean, _, model_log_variance = self.p_mean_variance(
-            x, cond, t, b_mean, b_var, returns, use_belief, use_return
+            x, cond, t, b_mean, b_var, b_bound, returns, use_belief, use_return
         )
         noise = 0.5 * torch.randn_like(x)
         # no noise at t=0
@@ -306,6 +297,7 @@ class GaussianDiffusion(nn.Module):
         cond: dict,
         b_mean: torch.Tensor,
         b_var: torch.Tensor,
+        b_bound: torch.Tensor,
         returns: torch.Tensor,
         verbose: bool = False,
         return_diffusion: bool = False,
@@ -338,7 +330,7 @@ class GaussianDiffusion(nn.Module):
 
         for i in reversed(reverse_range):
             t_batch = torch.full((B,), i, device=device, dtype=torch.long)
-            x = self.p_sample(x, cond, t_batch, b_mean, b_var, returns, use_belief, use_return)
+            x = self.p_sample(x, cond, t_batch, b_mean, b_var, b_bound, returns, use_belief, use_return)
             x = apply_conditioning(x, cond, action_dim=0)
             if return_diffusion:
                 diffusion_steps.append(x)
@@ -353,6 +345,7 @@ class GaussianDiffusion(nn.Module):
         cond: dict,
         b_mean: torch.Tensor,
         b_var: torch.Tensor,
+        b_bound: torch.Tensor,
         returns: torch.Tensor,
         horizon: int | None = None,
         x_init: torch.Tensor | None = None,
@@ -369,6 +362,7 @@ class GaussianDiffusion(nn.Module):
         cond    : {0: (B, 2)}   – AUV start position
         b_mean  : (B, 1600)     – GP posterior mean (flattened)
         b_var   : (B, 1600)     – GP posterior variance (flattened)
+        b_bound : (B, 1600)     – GP domain boundary mask (flattened)
         returns : (B, 1)        – target return / reward signal
 
         Returns
@@ -385,6 +379,7 @@ class GaussianDiffusion(nn.Module):
             cond,
             b_mean,
             b_var,
+            b_bound,
             returns,
             x_init=x_init,
             noise_steps=noise_steps,
@@ -416,6 +411,7 @@ class GaussianDiffusion(nn.Module):
         t: torch.Tensor,  # (B,)
         b_mean: torch.Tensor,  # (B, 1600)
         b_var: torch.Tensor,  # (B, 1600)
+        b_bound: torch.Tensor,  # (B, 1600)
         returns: torch.Tensor,  # (B, 1)
     ):
         noise = torch.randn_like(x_start)
@@ -435,6 +431,7 @@ class GaussianDiffusion(nn.Module):
             t,
             b_mean,
             b_var,
+            b_bound,
             returns,
             use_dropout=True,
             force_dropout=False,
@@ -457,12 +454,13 @@ class GaussianDiffusion(nn.Module):
         cond: dict,  # {0: (B, 2)}
         b_mean: torch.Tensor,  # (B, 1600)
         b_var: torch.Tensor,  # (B, 1600)
+        b_bound: torch.Tensor,  # (B, 1600)
         returns: torch.Tensor,  # (B, 1)
     ):
         B = x.shape[0]
         t = torch.randint(0, self.n_timesteps, (B,), device=x.device).long()
-        return self.p_losses(x, cond, t, b_mean, b_var, returns)
+        return self.p_losses(x, cond, t, b_mean, b_var, b_bound, returns)
 
-    def forward(self, cond, b_mean, b_var, returns, **kwargs):
+    def forward(self, cond, b_mean, b_var, b_bound, returns, **kwargs):
         """Alias for conditional_sample for use during evaluation."""
-        return self.conditional_sample(cond, b_mean, b_var, returns, **kwargs)
+        return self.conditional_sample(cond, b_mean, b_var, b_bound, returns, **kwargs)
