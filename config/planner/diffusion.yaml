@@ -4,9 +4,9 @@ defaults:
   - _self_
 
 type: diffusion
-checkpoint_path: results/train_diffusion/run/2026-08-24_11-38-30/final_checkpoint.pt
-replan_every: 4
-target_return: 0.5
+checkpoint_path: results/train_diffusion/run/2026-08-25_01-13-09/final_checkpoint.pt
+replan_every: 8
+target_return: 1.0
 device: null                # null → auto (cuda if available, else cpu)
 
 warm_start: True

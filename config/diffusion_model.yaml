@@ -20,7 +20,7 @@ architecture:
   horizon: 16
   transition_dim: 2
   belief_dim: 1600   # crop_size² = 40² (documentation only, not used by model)
-  dim: 32
+  dim: 64
   dim_mults: [1, 2, 4]
   condition_dropout: 0.2
   kernel_size: 5

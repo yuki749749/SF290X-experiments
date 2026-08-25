@@ -49,8 +49,8 @@ import joblib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
+from matplotlib import colormaps
 from matplotlib.lines import Line2D
-from matplotlib.cm import get_cmap
 
 # ── Style ──────────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -96,6 +96,16 @@ def fmt(v: float) -> str:
     return s + ".0" if "." not in s else s
 
 
+def get_actual_subdir(sweep_root: Path, guidance_scale: float, target_return: float) -> str | None:
+    """Find the actual subdirectory name on disk that matches the floats (w, r)."""
+    for p in sweep_root.glob("scenario_*/guidance_scale=*,target_return=*"):
+        m = SUBDIR_RE.search(p.name)
+        if m:
+            if np.isclose(float(m.group(1)), guidance_scale) and np.isclose(float(m.group(2)), target_return):
+                return p.name
+    return None
+
+
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 def load_final_metric(
@@ -110,7 +120,9 @@ def load_final_metric(
 
     Returns (mean, sem) or (None, None) if no data found.
     """
-    subdir = f"guidance_scale={fmt(guidance_scale)},target_return={fmt(target_return)}"
+    subdir = get_actual_subdir(sweep_root, guidance_scale, target_return)
+    if not subdir:
+        return None, None
     pkl_files = sorted(sweep_root.glob(f"scenario_*/{subdir}/history.pkl"))
     if not pkl_files:
         return None, None
@@ -139,7 +151,9 @@ def load_time_series(
     metric_key: str,
 ) -> np.ndarray | None:
     """Load full time-series (n_scenarios, T) for a given config pair."""
-    subdir = f"guidance_scale={fmt(guidance_scale)},target_return={fmt(target_return)}"
+    subdir = get_actual_subdir(sweep_root, guidance_scale, target_return)
+    if not subdir:
+        return None
     pkl_files = sorted(sweep_root.glob(f"scenario_*/{subdir}/history.pkl"))
     if not pkl_files:
         return None
@@ -237,7 +251,7 @@ def plot_curves(
     cycles over target return values.
     """
     n_combos = len(scales) * len(returns)
-    cmap = get_cmap("plasma")
+    cmap = colormaps["plasma"]
     scale_colors = {w: cmap(0.15 + 0.70 * j / max(len(scales) - 1, 1))
                     for j, w in enumerate(scales)}
     ls_cycle = list(itertools.islice(itertools.cycle(LINESTYLES), len(returns)))
@@ -297,7 +311,7 @@ def print_summary(
     scales: list[float],
     returns: list[float],
 ) -> None:
-    print("\n── Final-step metric summary (mean ± SEM across scenarios) ──")
+    print("\n-- Final-step metric summary (mean +/- SEM across scenarios) --")
     header = f"{'guidance_scale':>15}  {'target_return':>13}"
     for _, label, _, _ in METRICS:
         header += f"  {label:>24}"
@@ -309,9 +323,9 @@ def print_summary(
             for metric_key, _, _, _ in METRICS:
                 mu, sem = load_final_metric(sweep_root, w, r, metric_key)
                 if mu is None:
-                    row += f"  {'—':>24}"
+                    row += f"  {'-':>24}"
                 else:
-                    row += f"  {mu:>10.4f} ± {sem:<10.4f}"
+                    row += f"  {mu:>10.4f} +/- {sem:<10.4f}"
             print(row)
     print()
 

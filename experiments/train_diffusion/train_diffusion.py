@@ -201,9 +201,22 @@ def main(cfg: DictConfig) -> None:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg.training.lr, weight_decay=cfg.training.weight_decay
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=cfg.training.n_epochs, eta_min=cfg.training.eta_min
-    )
+    warmup_epochs = cfg.training.get("warmup_epochs", 5)
+    if warmup_epochs > 0:
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+        )
+        decay_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cfg.training.n_epochs - warmup_epochs, eta_min=cfg.training.eta_min
+        )
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup_scheduler, decay_scheduler], milestones=[warmup_epochs]
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=cfg.training.n_epochs, eta_min=cfg.training.eta_min
+        )
+
 
     log_path = os.path.join(output_dir, "training_log.csv")
     log_fields = ["epoch", "train_loss", "val_loss"]
@@ -240,6 +253,14 @@ def main(cfg: DictConfig) -> None:
             )
         else:
             patience_counter += 1
+
+        save_every = cfg.training.get("save_every", 20)
+        if save_every and epoch % save_every == 0:
+            epoch_checkpoint_path = os.path.join(output_dir, f"checkpoint_epoch_{epoch}.pt")
+            save_checkpoint(
+                epoch_checkpoint_path, epoch, model, optimizer, scheduler, best_val_loss, ema, getattr(train_set, "stats", None)
+            )
+
 
         if patience_counter >= patience:
             log.info(f"Early stopping triggered at epoch {epoch} (no improvement for {patience} epochs).")

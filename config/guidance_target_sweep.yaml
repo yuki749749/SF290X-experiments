@@ -1,15 +1,19 @@
+defaults:
+  - base
+  - diffusion_model
+  - planner: diffusion
+  - override hydra/launcher: joblib
+  - _self_
+
 hydra:
   run:
     dir: results/${hydra.job.name}/run/${now:%Y-%m-%d_%H-%M-%S}/scenario_${scenario_idx}/guidance_scale=${diffusion.condition_guidance_w},target_return=${planner.target_return}
   sweep:
     dir: results/${hydra.job.name}/sweep/${now:%Y-%m-%d_%H-%M-%S}
     subdir: scenario_${scenario_idx}/guidance_scale=${diffusion.condition_guidance_w},target_return=${planner.target_return}
+  launcher:
+    n_jobs: -1
 
-defaults:
-  - base
-  - diffusion_model
-  - planner: diffusion
-  - _self_
-
-n_timesteps: 100
+n_timesteps: 400
 scenario_idx: 0
+

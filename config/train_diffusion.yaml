@@ -11,7 +11,11 @@ training:
   weight_decay: 1.0e-4
   eta_min: 1.0e-5
   ema_decay: 0.995
-  early_stopping_patience: 10
+  early_stopping_patience: 200
+  warmup_epochs: 5
+  save_every: 20
+
+
 
 # Optional dataset/training overrides. If set to null (or omitted), 
 # they automatically inherit settings from the processed dataset's stats JSON.
