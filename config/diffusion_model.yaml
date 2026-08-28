@@ -11,8 +11,8 @@ diffusion:
   predict_epsilon: True
   loss_discount: 1.0
   condition_guidance_w: 5.0
-  belief_guidance_w: null     # null → falls back to condition_guidance_w (original 2-pass CFG)
-  return_guidance_w: null     # set both to enable composed 3-pass CFG
+  belief_guidance_w: 3.0     # null → falls back to condition_guidance_w (original 2-pass CFG)
+  return_guidance_w: 1.2     # set both to enable composed 3-pass CFG
   n_cond_steps: 2
 
 

@@ -200,7 +200,7 @@ def get_planner(cfg):
 
         projector = SequentialProjector(
             v=cfg.planner.max_step,
-            max_turn=np.pi / 4,
+            max_turn=cfg.planner.max_turn,
             domain_size=tuple(cfg.domain_size),
             domain_pad=cfg.domain_pad,
         )
@@ -261,6 +261,7 @@ def get_planner(cfg):
             max_step=cfg.planner.max_step,
             stats=stats,
             use_egocentric=cfg.planner.get("use_egocentric", False) or cfg.architecture.get("use_egocentric", False),
+            max_turn=cfg.planner.max_turn,
         )
     else:
         raise ValueError(f"Unknown planner type: {cfg.planner}")

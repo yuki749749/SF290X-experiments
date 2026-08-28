@@ -49,7 +49,7 @@ except FileNotFoundError:
     DEFAULT_DATA = Path("results/process_trajectories/run/2026-05-13_10-12-10/training_data.pkl")
 
 
-def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
+def plot_reward_distribution(data_path: Path, output_path: Path = None, reward_type: str = None) -> None:
     # Resolve the companion stats file
     prefix = data_path.name.replace("_data.pkl", "")
     stats_path = data_path.parent / f"{prefix}_data_stats.json"
@@ -62,7 +62,8 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
     horizon = stats.get("horizon", 16)
     stride = stats.get("stride", 4)
     reward_key = stats.get("reward_key", "rmse_history")
-    reward_type = stats.get("reward_type", "rmse")
+    if reward_type is None:
+        reward_type = stats.get("reward_type", "rmse")
     max_step = stats.get("max_step", 10.0)
     initial_heading = stats.get("initial_heading", 0.7853981633974483)
 
@@ -88,6 +89,11 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
     # Reverse mapping for filenames (e.g. "BayesianOptimizationPlanner" -> "bo")
     planner_keys = {tag: name for name, tag in PLANNER_DIRS.items()}
 
+    # Determine base output path if not specified
+    if output_path is None:
+        filename_prefix = f"reward_distribution_{reward_type}" if reward_type == "trace_reduction" else "reward_distribution"
+        output_path = data_path.parent / f"{filename_prefix}.pdf"
+
     # Plot separately for each planner
     planners_found = set(w["planner"] for w in windowed_dataset)
     for planner in planners_found:
@@ -105,11 +111,13 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
 
         fig, ax = plt.subplots(figsize=FIGURE_SIZES["single"], constrained_layout=True)
         ax.hist(planner_rewards, bins=60, color="#4393C3", edgecolor="white", linewidth=0.4)
-        ax.set_xlabel("Reward $r$")
+        reward_label = "Reward $r$ (Trace Reduction)" if reward_type == "trace_reduction" else "Reward $r$"
+        ax.set_xlabel(reward_label)
         ax.set_ylabel("Count")
         
         title_name = planner_suffix.replace("_", " ").upper()
-        ax.set_title(f"{title_name} Reward Distribution  ($n={len(planner_rewards):,}$)", fontsize=10)
+        type_title = "Trace Reduction " if reward_type == "trace_reduction" else ""
+        ax.set_title(f"{title_name} {type_title}Reward Distribution  ($n={len(planner_rewards):,}$)", fontsize=10)
 
         percentiles = [50, 90, 95]
         colors      = ["#D55E00", "#009E73", "#0072B2"]
@@ -122,7 +130,7 @@ def plot_reward_distribution(data_path: Path, output_path: Path) -> None:
                    label=f"mean = {planner_rewards.mean():.3f}")
         ax.legend(frameon=False)
 
-        print(f"\n--- {title_name} Reward Percentiles ---")
+        print(f"\n--- {title_name} ({reward_type}) Reward Percentiles ---")
         print(f"  {'mean':<6}: {planner_rewards.mean():.4f}")
         for p, v in zip(percentiles, pct_values):
             print(f"  p{p:<5}: {v:.4f}")
@@ -146,16 +154,21 @@ def main():
         "--output",
         type=Path,
         default=None,
-        help="Output PDF path (default: <data_dir>/reward_distribution.pdf).",
+        help="Output PDF path (default: <data_dir>/reward_distribution[_<reward_type>].pdf).",
+    )
+    parser.add_argument(
+        "--reward_type",
+        type=str,
+        choices=["rmse", "trace_reduction"],
+        default=None,
+        help="Reward formulation to extract and plot ('rmse' or 'trace_reduction'). Default: from stats.",
     )
     args = parser.parse_args()
 
-    output_path = args.output or (args.data.parent / "reward_distribution.pdf")
+    print(f"Data        : {args.data}")
+    print(f"Reward type : {args.reward_type or 'from stats'}")
 
-    print(f"Data   : {args.data}")
-    print(f"Output : {output_path}")
-
-    plot_reward_distribution(args.data, output_path)
+    plot_reward_distribution(args.data, args.output, reward_type=args.reward_type)
 
 
 if __name__ == "__main__":

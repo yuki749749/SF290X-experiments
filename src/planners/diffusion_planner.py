@@ -80,13 +80,14 @@ class DiffusionPlanner(BasePlanner):
         max_step: float = 1.0,
         stats: Optional[dict] = None,
         use_egocentric: bool = False,
+        max_turn: float = np.pi / 8,
     ):
         super().__init__(
             domain_size=domain_size,
             domain_pad=domain_pad,
             max_step=max_step,
             min_step=max_step,
-            max_turn=np.pi / 4,  # not used by this planner
+            max_turn=max_turn,
             boundary_behavior="clamp",
         )
         self.diffusion = diffusion
@@ -476,7 +477,7 @@ class DiffusionPlanner(BasePlanner):
 
         x, y = current_position
         W, H = self.domain_size
-        tolerance_rate = 1.0  # allow some tolerance beyond the domain boundary before steering back
+        tolerance_rate = 0.0  # allow some tolerance beyond the domain boundary before steering back
 
         if not (-self.domain_pad * tolerance_rate <= x <= W + self.domain_pad * tolerance_rate and -self.domain_pad * tolerance_rate <= y <= H + self.domain_pad * tolerance_rate):
             # Out-of-domain: steer back, do not consume buffer
@@ -496,6 +497,7 @@ class DiffusionPlanner(BasePlanner):
         if self._is_steering_back:
             self._waypoint_buffer = []
             self._is_steering_back = False
+            self._last_tau_norm = None
 
 
         should_replan = (
