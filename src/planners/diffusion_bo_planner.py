@@ -108,6 +108,11 @@ class DiffusionBOPlanner(BasePlanner):
         crop_size: int = 24,
         acq_mask_sharpness: float = 3.0,
         boundary_penalty: float = 1e4,
+        wivr_weighting: str = "hybrid",
+        wivr_grid_size: int = 20,
+        guidance: bool = False,
+        guidance_scale: float = 1.0,
+        guidance_max_disp: float = 5.0,
     ):
         super().__init__(
             domain_size=domain_size,
@@ -131,12 +136,23 @@ class DiffusionBOPlanner(BasePlanner):
         self.crop_size          = crop_size
         self.acq_mask_sharpness = acq_mask_sharpness
         self.boundary_penalty   = boundary_penalty
+        self.wivr_weighting     = wivr_weighting
+        self.wivr_grid_size     = wivr_grid_size
+        self.guidance           = guidance
+        self.guidance_scale     = guidance_scale
+        self.guidance_max_disp  = guidance_max_disp
 
         self.domain_size_t = torch.tensor(domain_size, dtype=torch.float32)
         self.domain_pad_t  = torch.tensor(domain_pad,  dtype=torch.float32)
 
         _dmin = list(domain_min) if domain_min is not None else [0.0, 0.0]
         _dmax = list(domain_max) if domain_max is not None else list(domain_size[:2])
+
+        # WIVR evaluation grid
+        xs_wivr = torch.linspace(0.0, domain_size[0], wivr_grid_size)
+        ys_wivr = torch.linspace(0.0, domain_size[1], wivr_grid_size)
+        xg_wivr, yg_wivr = torch.meshgrid(xs_wivr, ys_wivr, indexing="ij")
+        self.wivr_grid = torch.stack([xg_wivr.flatten(), yg_wivr.flatten()], dim=-1)
 
         # Padded domain bounds (match training normalisation)
         self.domain_min = torch.tensor(
@@ -218,6 +234,9 @@ class DiffusionBOPlanner(BasePlanner):
         future_trajs = trajs_np[:, buffer_start:, :]  # (K, H_future, 2)
         H_future = future_trajs.shape[1]
 
+        if self.acquisition == "wivr":
+            return self._score_wivr(future_trajs, belief)
+
         all_positions = torch.tensor(
             future_trajs.reshape(K * H_future, 2), dtype=torch.float32
         )  # (K * H_future, 2)
@@ -243,7 +262,7 @@ class DiffusionBOPlanner(BasePlanner):
         elif self.acquisition == "ucb":
             point_acq = (means + self.beta * stds) * mask
         else:
-            raise ValueError(f"Unknown acquisition: {self.acquisition!r}. Use 'variance', 'std', or 'ucb'.")
+            raise ValueError(f"Unknown acquisition: {self.acquisition!r}. Use 'wivr', 'variance', 'std', or 'ucb'.")
 
         # Temporal discounting gamma^t (earlier waypoints weigh more)
         if self.gamma < 1.0:
@@ -258,6 +277,229 @@ class DiffusionBOPlanner(BasePlanner):
             scores = scores - torch.from_numpy(out_of_bounds_count).float() * self.boundary_penalty
 
         return scores.numpy()
+
+    def _ensure_model_on_device(self, model, device: torch.device):
+        """Ensure all tensors in SimpleMaternGP model are on the target device."""
+        if model.train_x.device != device:
+            model.train_x = model.train_x.to(device)
+            model.train_y = model.train_y.to(device)
+            model.lengthscale = model.lengthscale.to(device)
+            model.outputscale = model.outputscale.to(device)
+            model.noise = model.noise.to(device)
+            model.mean_constant = model.mean_constant.to(device)
+            if model._L is not None:
+                model._L = model._L.to(device)
+            if model._alpha is not None:
+                model._alpha = model._alpha.to(device)
+
+    def _score_wivr(
+        self,
+        future_trajs: np.ndarray,
+        belief,
+    ) -> np.ndarray:
+        """
+        Score K candidate trajectories using Weighted Integrated Variance Reduction (WIVR).
+        Evaluates the joint variance reduction over a spatial grid Z and weights the reduction
+        by estimated plume concentration and/or unobserved variance.
+
+        Parameters
+        ----------
+        future_trajs : (K, H_future, 2) numpy array in physical coordinates
+        belief       : GP Belief object with .model and .predict()
+
+        Returns
+        -------
+        scores : (K,) numpy array
+        """
+        K, H_f, _ = future_trajs.shape
+        model = belief.model
+        self._ensure_model_on_device(model, self.device)
+        Z = self.wivr_grid.to(device=self.device, dtype=torch.float32)
+
+        # 1. Compute grid weights w(Z)
+        with torch.no_grad():
+            grid_means, grid_vars = belief.predict(Z)
+            grid_stds = grid_vars.sqrt()
+
+        if self.wivr_weighting == "uniform":
+            weights = torch.ones_like(grid_means)
+        elif self.wivr_weighting == "plume":
+            # 1.0 (base global trace reduction) + beta * normalized max(0, mu) (plume amplification)
+            m_pos = torch.clamp(grid_means, min=0.0)
+            noise_floor = 2.0 * float(model.noise.sqrt().item()) if hasattr(model, "noise") else 1.0
+            m_peak = torch.clamp(m_pos.max(), min=noise_floor)
+            weights = 1.0 + self.beta * (m_pos / m_peak)
+        elif self.wivr_weighting == "uncertainty":
+            weights = grid_stds
+        elif self.wivr_weighting == "hybrid":
+            m_norm = torch.clamp(grid_means, min=0.0)
+            if m_norm.max() > 1e-6:
+                m_norm = m_norm / m_norm.max()
+            s_norm = grid_stds
+            if s_norm.max() > 1e-6:
+                s_norm = s_norm / s_norm.max()
+            weights = m_norm + self.beta * s_norm
+        else:
+            raise ValueError(
+                f"Unknown wivr_weighting: {self.wivr_weighting!r}. "
+                "Use 'hybrid', 'plume', 'uncertainty', or 'uniform'."
+            )
+
+        # 2. Extract GP Cholesky factor L_X for current training data
+        _ = model.predict(model.train_x[:1])
+        L_X = model._L
+        train_x = model.train_x
+
+        # 3. Covariance between training data and grid Z:
+        K_XZ = model._matern_kernel(train_x, Z)
+        v_Z = torch.linalg.solve_triangular(L_X, K_XZ, upper=False)
+
+        tau_t = torch.tensor(future_trajs, dtype=torch.float32, device=train_x.device)
+        scores = np.zeros(K, dtype=np.float32)
+        jitter = 1e-5 * torch.eye(H_f, dtype=torch.float32, device=train_x.device)
+        W, H_dim = self.domain_size
+
+        for k in range(K):
+            tau_k = tau_t[k]
+            in_b = (
+                (tau_k[:, 0] >= 0.0)
+                & (tau_k[:, 0] <= W)
+                & (tau_k[:, 1] >= 0.0)
+                & (tau_k[:, 1] <= H_dim)
+            )
+
+            K_X_tau = model._matern_kernel(train_x, tau_k)
+            v_tau = torch.linalg.solve_triangular(L_X, K_X_tau, upper=False)
+
+            K_tau_Z = model._matern_kernel(tau_k, Z)
+            K_X_tauZ = K_tau_Z - v_tau.t() @ v_Z
+
+            K_tau_tau = model._matern_kernel(tau_k, tau_k)
+            K_X_tautau = K_tau_tau - v_tau.t() @ v_tau
+
+            # Out-of-domain points are given high measurement noise (1e6) so they yield 0 variance reduction
+            noise_diag = torch.where(in_b, model.noise, torch.tensor(1e6, device=train_x.device))
+            K_noisy = K_X_tautau + torch.diag(noise_diag) + jitter
+
+            try:
+                L_tau = torch.linalg.cholesky(K_noisy)
+                W_mat = torch.linalg.solve_triangular(L_tau, K_X_tauZ, upper=False)
+                delta_var = torch.sum(W_mat ** 2, dim=0)
+                scores[k] = torch.sum(weights * delta_var).item()
+            except Exception as exc:
+                log.debug("WIVR Cholesky failed for candidate %d: %s", k, exc)
+                scores[k] = 0.0
+
+        # Optional boundary penalty
+        if self.boundary_penalty > 0.0:
+            x_pts = future_trajs[..., 0]
+            y_pts = future_trajs[..., 1]
+            in_bounds = (x_pts >= 0.0) & (x_pts <= W) & (y_pts >= 0.0) & (y_pts <= H_dim)
+            out_of_bounds_count = (~in_bounds).sum(axis=1)
+            scores = scores - out_of_bounds_count * self.boundary_penalty
+
+        return scores
+
+    # ── differentiable WIVR & gradient guidance ────────────────────────────────
+
+    def _diff_matern_kernel(self, model, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
+        """Differentiable Matern-5/2 kernel with epsilon-regularized distance."""
+        lscale = model.lengthscale.to(x1.device)
+        x1_s = x1 / lscale
+        x2_s = x2 / lscale
+        diff = x1_s.unsqueeze(1) - x2_s.unsqueeze(0)  # (N1, N2, 2)
+        dist_sq = (diff ** 2).sum(dim=-1)             # (N1, N2)
+        dist = torch.sqrt(dist_sq + 1e-12)
+        sqrt5 = 2.23606797749979
+        val = 1.0 + sqrt5 * dist + (5.0 / 3.0) * dist_sq
+        return model.outputscale.to(x1.device) * val * torch.exp(-sqrt5 * dist)
+
+    def _wivr_guide_fn(self, x_norm: torch.Tensor, k_step: int, cond: dict, belief) -> torch.Tensor:
+        """
+        Analytical WIVR gradient guidance: computes d(WIVR) / d(x_norm) and nudges
+        waypoints toward information hotspots during reverse diffusion.
+        """
+        if self.guidance_scale <= 0.0:
+            return x_norm
+
+        with torch.enable_grad():
+            x_in = x_norm.detach().clone().requires_grad_(True)
+            d_min = self.domain_min.to(x_in.device)
+            d_max = self.domain_max.to(x_in.device)
+            x_phys = 0.5 * (x_in + 1.0) * (d_max - d_min) + d_min  # (K, H, 2)
+            future_phys = x_phys[:, 2:]  # (K, H_f, 2)
+
+            model = belief.model
+            self._ensure_model_on_device(model, x_in.device)
+            Z = self.wivr_grid.to(device=x_in.device, dtype=torch.float32)
+
+            with torch.no_grad():
+                grid_means, grid_vars = belief.predict(Z)
+                grid_stds = grid_vars.sqrt()
+                if self.wivr_weighting == "uniform":
+                    weights = torch.ones_like(grid_means)
+                elif self.wivr_weighting == "plume":
+                    m_pos = torch.clamp(grid_means, min=0.0)
+                    noise_floor = 2.0 * float(model.noise.sqrt().item()) if hasattr(model, "noise") else 1.0
+                    m_peak = torch.clamp(m_pos.max(), min=noise_floor)
+                    weights = 1.0 + self.beta * (m_pos / m_peak)
+                elif self.wivr_weighting == "uncertainty":
+                    weights = grid_stds
+                elif self.wivr_weighting == "hybrid":
+                    m_norm = torch.clamp(grid_means, min=0.0)
+                    if m_norm.max() > 1e-6:
+                        m_norm = m_norm / m_norm.max()
+                    s_norm = grid_stds
+                    if s_norm.max() > 1e-6:
+                        s_norm = s_norm / s_norm.max()
+                    weights = m_norm + self.beta * s_norm
+                else:
+                    weights = torch.ones_like(grid_means)
+
+            _ = model.predict(model.train_x[:1])
+            L_X = model._L
+            train_x = model.train_x
+
+            K_XZ = self._diff_matern_kernel(model, train_x, Z)
+            v_Z = torch.linalg.solve_triangular(L_X, K_XZ, upper=False)
+
+            K_cand, H_f, _ = future_phys.shape
+            total_score = torch.tensor(0.0, device=x_in.device, requires_grad=True)
+
+            jitter = 1e-4 * torch.eye(H_f, dtype=torch.float32, device=x_in.device)
+            noise_t = model.noise.to(x_in.device)
+
+            for i in range(K_cand):
+                tau_i = future_phys[i]
+                K_Xtau = self._diff_matern_kernel(model, train_x, tau_i)
+                v_tau = torch.linalg.solve_triangular(L_X, K_Xtau, upper=False)
+
+                K_tautau = self._diff_matern_kernel(model, tau_i, tau_i)
+                C_tau = K_tautau - v_tau.t() @ v_tau + noise_t * torch.eye(H_f, device=x_in.device) + jitter
+
+                try:
+                    L_tau = torch.linalg.cholesky(C_tau)
+                    K_tauZ = self._diff_matern_kernel(model, tau_i, Z)
+                    K_tauZ_cond = K_tauZ - v_tau.t() @ v_Z
+                    u = torch.linalg.solve_triangular(L_tau, K_tauZ_cond, upper=False)
+                    delta_var = torch.sum(u ** 2, dim=0)
+                    total_score = total_score + torch.sum(weights * delta_var)
+                except Exception:
+                    pass
+
+            if total_score.requires_grad and total_score.grad_fn is not None:
+                grad = torch.autograd.grad(total_score, x_in)[0]
+            else:
+                return x_norm
+
+        grad[:, :2] = 0.0
+        grad_norm = torch.norm(grad, dim=-1, keepdim=True)
+        norm_factor = 2.0 / (d_max[0] - d_min[0])
+        max_disp_norm = self.guidance_max_disp * norm_factor
+
+        clipped_grad = grad / torch.clamp(grad_norm, min=1e-4) * torch.clamp(grad_norm, max=max_disp_norm)
+        step_nudge = self.guidance_scale * clipped_grad
+        return (x_norm + step_nudge).detach()
 
     # ── warm-start seed ───────────────────────────────────────────────────────
 
@@ -332,6 +574,12 @@ class DiffusionBOPlanner(BasePlanner):
             x_init      = seed_1.repeat(K, 1, 1)             # (K, horizon, 2)
             noise_steps = self.noise_steps
 
+        # Construct gradient guidance hook if enabled
+        guide_fn = (
+            (lambda x, k_step, cond_step: self._wivr_guide_fn(x, k_step, cond_step, belief))
+            if self.guidance else None
+        )
+
         # Sample K candidate trajectories in a single batched pass
         with torch.no_grad():
             candidate_norms = self.diffusion.conditional_sample(
@@ -344,6 +592,7 @@ class DiffusionBOPlanner(BasePlanner):
                 noise_steps=noise_steps,
                 use_belief=False,
                 use_return=False,
+                guide_fn=guide_fn,
             )  # (K, horizon, 2)
 
         # Decode to physical coordinates

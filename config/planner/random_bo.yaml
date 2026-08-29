@@ -3,16 +3,14 @@ defaults:
   - base_planner
   - _self_
 
-type: diffusion_bo
-
-# ── Diffusion model checkpoint ────────────────────────────────────────────────
-checkpoint_path: results\train_diffusion\run\2026-08-25_01-13-09\checkpoint_epoch_120.pt
+type: random_bo
 
 # ── Replanning ────────────────────────────────────────────────────────────────
 replan_every: 8          # replan after this many executed steps
+horizon: 16
 
 # ── BO acquisition ────────────────────────────────────────────────────────────
-n_samples: 16             # K candidate trajectories sampled per replan (16 guided samples)
+n_samples: 100           # K candidate trajectories sampled per replan
 acquisition: wivr        # "wivr", "ucb", "variance", or "std"
 wivr_weighting: plume    # "hybrid", "plume" (1 + beta*mu), "uncertainty", or "uniform"
 wivr_grid_size: 20       # side length of evaluation grid (20x20 = 400 points)
@@ -20,14 +18,7 @@ beta: 10.0               # multiplier on max(0, mu) for plume weighting
 gamma: 1.0               # discount factor along future waypoints (1.0 = undiscounted)
 boundary_penalty: 0.0    # 0.0 = rely strictly on position-level masking (no penalty)
 gp_mean_constant: 0.0    # prior mean of GP (0.0 = ambient ocean background)
+arc_prob: 0.5            # fraction of constant curvature arcs vs stochastic turns
 
-# ── Gradient guidance ─────────────────────────────────────────────────────────
-guidance: true           # enable analytical WIVR gradient guidance during diffusion
-guidance_scale: 1.0      # step size multiplier for guidance gradient
-guidance_max_disp: 5.0   # maximum displacement in meters per diffusion step
-
-# ── Diffusion sampling ────────────────────────────────────────────────────────
+# ── Sampling ──────────────────────────────────────────────────────────────────
 device: null             # null → auto (cuda if available, else cpu)
-warm_start: True         # seed sampling from previous best trajectory
-noise_steps: 20          # partial-noising steps for warm start
-

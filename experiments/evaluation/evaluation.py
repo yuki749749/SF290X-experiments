@@ -60,6 +60,10 @@ def main(cfg):
 
     output_dir = get_output_dir()
     gp_hyperparams = joblib.load(abs_path(cfg.paths.hyperparameters.gp))
+    if hasattr(cfg, "gp_mean_constant") and cfg.gp_mean_constant is not None:
+        gp_hyperparams["mean_constant"] = float(cfg.gp_mean_constant)
+    elif hasattr(cfg, "planner") and cfg.planner.get("gp_mean_constant", None) is not None:
+        gp_hyperparams["mean_constant"] = float(cfg.planner.gp_mean_constant)
 
     evaluation_x = make_grid(
         domain_min=cfg.domain_min,

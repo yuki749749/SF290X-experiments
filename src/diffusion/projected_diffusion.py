@@ -28,6 +28,7 @@ class ProjectedGaussianDiffusion(GaussianDiffusion):
         noise_steps: int | None = None,
         use_belief: bool = True,
         use_return: bool = True,
+        guide_fn=None,
     ):
         """
         Full denoising chain from x_T ~ N(0, I) to x_0.
@@ -55,6 +56,8 @@ class ProjectedGaussianDiffusion(GaussianDiffusion):
         for k in reversed(reverse_range):
             t_batch = torch.full((B,), k, device=device, dtype=torch.long)
             x = self.p_sample(x, cond, t_batch, b_mean, b_var, b_bound, returns, use_belief, use_return)
+            if guide_fn is not None:
+                x = guide_fn(x, k, cond)
             x = apply_conditioning(x, cond, action_dim=0)
             x_proj = self.projector.project(x.clone(), cond=cond)
             # print(torch.norm(x - x_proj).item())  # print projection difference at each step

@@ -348,6 +348,35 @@ def get_planner(cfg):
             crop_size=cfg.architecture.get("crop_size", 40),
             acq_mask_sharpness=cfg.planner.get("acq_mask_sharpness", 3.0),
             boundary_penalty=cfg.planner.get("boundary_penalty", 1e4),
+            wivr_weighting=cfg.planner.get("wivr_weighting", "hybrid"),
+            wivr_grid_size=cfg.planner.get("wivr_grid_size", 20),
+            guidance=cfg.planner.get("guidance", False),
+            guidance_scale=cfg.planner.get("guidance_scale", 1.0),
+            guidance_max_disp=cfg.planner.get("guidance_max_disp", 5.0),
+        )
+    elif cfg.planner.type == "random_bo":
+        from planners.random_bo_planner import RandomBOPlanner
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        horizon_val = cfg.diffusion.horizon if hasattr(cfg, "diffusion") and hasattr(cfg.diffusion, "horizon") else cfg.planner.get("horizon", 16)
+        return RandomBOPlanner(
+            domain_size=tuple(cfg.domain_size),
+            domain_pad=cfg.domain_pad,
+            horizon=horizon_val,
+            replan_every=cfg.planner.replan_every,
+            n_samples=cfg.planner.get("n_samples", 100),
+            acquisition=cfg.planner.get("acquisition", "wivr"),
+            beta=cfg.planner.get("beta", 10.0),
+            gamma=cfg.planner.get("gamma", 1.0),
+            device=device,
+            domain_min=list(cfg.domain_min),
+            domain_max=list(cfg.domain_max),
+            grid_size=int(cfg.n_evaluations ** 0.5),
+            max_step=cfg.planner.max_step,
+            max_turn=cfg.planner.max_turn,
+            boundary_penalty=cfg.planner.get("boundary_penalty", 0.0),
+            wivr_weighting=cfg.planner.get("wivr_weighting", "plume"),
+            wivr_grid_size=cfg.planner.get("wivr_grid_size", 20),
+            arc_prob=cfg.planner.get("arc_prob", 0.5),
         )
     else:
         raise ValueError(f"Unknown planner type: {cfg.planner}")

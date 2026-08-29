@@ -43,38 +43,50 @@ class SimpleMaternGP:
         self._alpha = None
 
     def update(self, new_x, new_y):
-        self.train_x = torch.cat([self.train_x, new_x.float()], dim=0)
-        self.train_y = torch.cat([self.train_y, new_y.float()], dim=0)
+        self.train_x = torch.cat([self.train_x, new_x.to(self.train_x.device).float()], dim=0)
+        self.train_y = torch.cat([self.train_y, new_y.to(self.train_y.device).float()], dim=0)
         self._L = None
         self._alpha = None
 
     def _matern_kernel(self, x1, x2):
-        x1_scaled = x1 / self.lengthscale
-        x2_scaled = x2 / self.lengthscale
+        dev = self.train_x.device
+        x1 = x1.to(dev)
+        x2 = x2.to(dev)
+        lscale = self.lengthscale.to(dev)
+        opscale = self.outputscale.to(dev)
+        x1_scaled = x1 / lscale
+        x2_scaled = x2 / lscale
         dist = torch.cdist(x1_scaled, x2_scaled, p=2.0)
         sqrt5 = 2.23606797749979
         val = 1.0 + sqrt5 * dist + (5.0 / 3.0) * (dist ** 2)
-        return self.outputscale * val * torch.exp(-sqrt5 * dist)
+        return opscale * val * torch.exp(-sqrt5 * dist)
 
     def predict(self, test_x):
+        orig_device = test_x.device
+        dev = self.train_x.device
+        test_x = test_x.to(dev)
         N = self.train_x.size(0)
         if self._L is None or self._alpha is None:
             K_XX = self._matern_kernel(self.train_x, self.train_x)
-            K_XX_noisy = K_XX + self.noise * torch.eye(N, dtype=torch.float32, device=self.train_x.device)
-            y_centered = self.train_y - self.mean_constant
+            noise_t = self.noise.to(dev)
+            K_XX_noisy = K_XX + noise_t * torch.eye(N, dtype=torch.float32, device=dev)
+            m_const = self.mean_constant.to(dev)
+            y_centered = self.train_y - m_const
 
             self._L = torch.linalg.cholesky(K_XX_noisy)
             w = torch.linalg.solve_triangular(self._L, y_centered.unsqueeze(-1), upper=False)
             self._alpha = torch.linalg.solve_triangular(self._L.t(), w, upper=True).squeeze(-1)
 
         K_star_X = self._matern_kernel(test_x, self.train_x)
-        pred_mean = K_star_X.mv(self._alpha) + self.mean_constant
+        m_const = self.mean_constant.to(dev)
+        pred_mean = K_star_X.mv(self._alpha) + m_const
 
         v = torch.linalg.solve_triangular(self._L, K_star_X.t(), upper=False)
-        pred_var = self.outputscale - torch.sum(v ** 2, dim=0)
+        opscale = self.outputscale.to(dev)
+        pred_var = opscale - torch.sum(v ** 2, dim=0)
         pred_var = torch.clamp(pred_var, min=1e-8)
 
-        return pred_mean, pred_var
+        return pred_mean.to(orig_device), pred_var.to(orig_device)
 
 
 class Belief:
