@@ -240,9 +240,11 @@ class DiffusionPlanner(BasePlanner):
             tau_new_body = tau_new_trans @ R_curr_T.t()
             last_tau_norm_shifted = (tau_new_body * scale_factor).unsqueeze(0)
             
-            suffix = last_tau_norm_shifted[0, self._steps_since_replan:]
+            shift_idx = 2 + self._steps_since_replan if (0 in cond and 1 in cond) else 1 + self._steps_since_replan
+            suffix = last_tau_norm_shifted[0, shift_idx:]
         else:
-            suffix = self._last_tau_norm[0, self._steps_since_replan:]
+            shift_idx = 2 + self._steps_since_replan if (0 in cond and 1 in cond) else 1 + self._steps_since_replan
+            suffix = self._last_tau_norm[0, shift_idx:]
             
         suffix_len = suffix.shape[0]
         copy_len   = min(suffix_len, H - 2)

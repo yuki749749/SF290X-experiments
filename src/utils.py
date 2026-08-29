@@ -263,6 +263,92 @@ def get_planner(cfg):
             use_egocentric=cfg.planner.get("use_egocentric", False) or cfg.architecture.get("use_egocentric", False),
             max_turn=cfg.planner.max_turn,
         )
+    elif cfg.planner.type == "diffusion_bo":
+        from planners.diffusion_bo_planner import DiffusionBOPlanner
+        from diffusion.model import TemporalUnet
+        from diffusion.projection import SequentialProjector
+        from diffusion.projected_diffusion import ProjectedGaussianDiffusion
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        unet = TemporalUnet(
+            horizon=cfg.architecture.horizon,
+            transition_dim=cfg.architecture.transition_dim,
+            belief_dim=cfg.architecture.belief_dim,
+            dim=cfg.architecture.dim,
+            dim_mults=tuple(cfg.architecture.dim_mults),
+            condition_dropout=cfg.architecture.condition_dropout,
+            kernel_size=cfg.architecture.kernel_size,
+            crop_size=cfg.architecture.get("crop_size", 40),
+            belief_encoder_pooling=cfg.architecture.get("belief_encoder_pooling", False),
+            conditioning_type=cfg.architecture.get("conditioning_type", "cnn"),
+        ).to(device)
+
+        projector = SequentialProjector(
+            v=cfg.planner.max_step,
+            max_turn=cfg.planner.max_turn,
+            domain_size=tuple(cfg.domain_size),
+            domain_pad=cfg.domain_pad,
+        )
+
+        diffusion_model = ProjectedGaussianDiffusion(
+            projector=projector,
+            model=unet,
+            horizon=cfg.diffusion.horizon,
+            observation_dim=cfg.diffusion.observation_dim,
+            n_timesteps=cfg.diffusion.n_timesteps,
+            loss_type=cfg.diffusion.loss_type,
+            clip_denoised=cfg.diffusion.clip_denoised,
+            predict_epsilon=cfg.diffusion.predict_epsilon,
+            condition_guidance_w=cfg.diffusion.condition_guidance_w,
+            n_cond_steps=cfg.diffusion.get("n_cond_steps", 2),
+            belief_guidance_w=cfg.diffusion.get("belief_guidance_w", None),
+            return_guidance_w=cfg.diffusion.get("return_guidance_w", None),
+        ).to(device)
+
+        checkpoint = torch.load(
+            abs_path(cfg.planner.checkpoint_path), map_location=device
+        )
+        weights_key = "ema_shadow" if "ema_shadow" in checkpoint else "model"
+        diffusion_model.load_state_dict(checkpoint[weights_key])
+        log.info(f"Loaded {weights_key} weights from checkpoint")
+        diffusion_model.eval()
+
+        stats = checkpoint.get("stats", None)
+        if stats is None:
+            checkpoint_dir = os.path.dirname(abs_path(cfg.planner.checkpoint_path))
+            stats_path = os.path.join(checkpoint_dir, "training_data_stats.json")
+            if os.path.exists(stats_path):
+                try:
+                    import json
+                    with open(stats_path, "r") as f:
+                        stats = json.load(f)
+                    log.info(f"Loaded normalisation stats from: {stats_path}")
+                except Exception as exc:
+                    log.warning(f"Error loading stats from {stats_path}: {exc}")
+
+        return DiffusionBOPlanner(
+            diffusion=diffusion_model,
+            domain_size=tuple(cfg.domain_size),
+            domain_pad=cfg.domain_pad,
+            horizon=cfg.diffusion.horizon,
+            replan_every=cfg.planner.replan_every,
+            n_samples=cfg.planner.get("n_samples", 10),
+            acquisition=cfg.planner.get("acquisition", "ucb"),
+            beta=cfg.planner.get("beta", 20.0),
+            gamma=cfg.planner.get("gamma", 1.0),
+            device=device,
+            warm_start=cfg.planner.get("warm_start", True),
+            noise_steps=cfg.planner.get("noise_steps", 20),
+            domain_min=list(cfg.domain_min),
+            domain_max=list(cfg.domain_max),
+            grid_size=int(cfg.n_evaluations ** 0.5),
+            max_step=cfg.planner.max_step,
+            max_turn=cfg.planner.max_turn,
+            stats=stats,
+            crop_size=cfg.architecture.get("crop_size", 40),
+            acq_mask_sharpness=cfg.planner.get("acq_mask_sharpness", 3.0),
+            boundary_penalty=cfg.planner.get("boundary_penalty", 1e4),
+        )
     else:
         raise ValueError(f"Unknown planner type: {cfg.planner}")
 

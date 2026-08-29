@@ -218,6 +218,9 @@ class GaussianDiffusion(nn.Module):
         eps_uncond = self.model(x, cond, t, b_mean, b_var, b_bound, returns,
                                 force_dropout=True, **_kw)
 
+        if not use_belief and not use_return:
+            return eps_uncond
+
         if self.belief_guidance_w is None and self.return_guidance_w is None:
             # original 2-pass CFG
             eps_cond = self.model(x, cond, t, b_mean, b_var, b_bound, returns,

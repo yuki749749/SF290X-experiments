@@ -64,10 +64,11 @@ _CONFIG_ORDER = [
 ]
 
 _CONFIG_LABELS = {
-    "diffusion": "Diffusion",
-    "bo":        "Bayesian Optimization",
-    "random":    "Random Walk",
-    "lawnmower": "Lawnmower",
+    "diffusion":    "Diffusion",
+    "diffusion_bo": "Diffusion BO",
+    "bo":           "Bayesian Optimization",
+    "random":       "Random Walk",
+    "lawnmower":    "Lawnmower",
 }
 
 

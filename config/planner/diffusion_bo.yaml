@@ -1,0 +1,25 @@
+defaults:
+  - /base
+  - base_planner
+  - _self_
+
+type: diffusion_bo
+
+# ── Diffusion model checkpoint ────────────────────────────────────────────────
+checkpoint_path: results\train_diffusion\run\2026-08-25_01-13-09\checkpoint_epoch_120.pt
+
+# ── Replanning ────────────────────────────────────────────────────────────────
+replan_every: 8          # replan after this many executed steps
+
+# ── BO acquisition ────────────────────────────────────────────────────────────
+n_samples: 20            # K candidate trajectories sampled per replan
+acquisition: variance         # "ucb", "variance", or "std"
+beta: 0.5                # UCB exploration weight (1.0-2.0 balances plume tracking with exploration)
+gamma: 1.0               # discount factor along future waypoints (1.0 = undiscounted)
+boundary_penalty: 0.0    # 0.0 = rely strictly on position-level masking (no penalty)
+
+# ── Diffusion sampling ────────────────────────────────────────────────────────
+device: null             # null → auto (cuda if available, else cpu)
+warm_start: True         # seed sampling from previous best trajectory
+noise_steps: 20          # partial-noising steps for warm start
+
